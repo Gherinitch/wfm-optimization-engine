@@ -1,65 +1,151 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState, useMemo } from "react";
+import { useScheduleStore } from "@/store/useScheduleStore";
+import { CoverageHeader } from "@/components/Timeline/CoverageHeader";
+import { GSTHeader } from "@/components/Timeline/GSTHeader";
+import { AgentRow } from "@/components/Timeline/AgentRow";
+import { ValidationModal } from "@/components/Timeline/ValidationModal";
+import { TimelineToolbar } from "@/components/Timeline/TimelineToolbar";
+import { parseScheduleData, fetchAvailableDates } from "@/utils/parser";
+import { AgentContextDrawer } from "@/components/Timeline/AgentContextDrawer";
+import { AgentContextPopover } from "@/components/Timeline/AgentContextPopover";
+import { AgentContextModal } from "@/components/Timeline/AgentContextModal";
+import { SwapModal } from "@/components/Timeline/SwapModal";
+
+type SortOption = "name" | "startTime";
+
+export default function OptimizationTool() {
+  const agents = useScheduleStore((state) => state.agents);
+  const segments = useScheduleStore((state) => state.segments);
+  const loadedDate = useScheduleStore((state) => state.loadedDate);
+
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [currentDate, setCurrentDate] = useState<string>("");
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState<SortOption>("startTime");
+
+  useEffect(() => {
+    fetchAvailableDates().then((dates) => {
+      setAvailableDates(dates);
+      if (dates.length > 0) setCurrentDate(dates[0]);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!currentDate) return;
+
+    // FIXED: If we have already downloaded the multi-week CSV, DO NOT fetch it again!
+    // Just tell the store to switch the active viewport date.
+    if (loadedDate) {
+      useScheduleStore.getState().setSelectedDate(currentDate);
+      useScheduleStore.getState().autoFitBounds();
+      setIsHydrated(true);
+      return;
+    }
+
+    // Only runs on the very first load
+    setIsHydrated(false);
+    parseScheduleData(currentDate).then(
+      ({ agents, segments, requirements }) => {
+        useScheduleStore
+          .getState()
+          .setHydratedData(currentDate, agents, segments, requirements);
+        useScheduleStore.getState().autoFitBounds();
+        setIsHydrated(true);
+      },
+    );
+  }, [currentDate, loadedDate]);
+
+  const handleForceSync = () => {
+    if (!currentDate) return;
+    setIsHydrated(false);
+    parseScheduleData(currentDate).then(
+      ({ agents, segments, requirements }) => {
+        // Force sync overwrites the memory and resets edits
+        useScheduleStore
+          .getState()
+          .setHydratedData(currentDate, agents, segments, requirements);
+        useScheduleStore.getState().autoFitBounds();
+        setIsHydrated(true);
+      },
+    );
+  };
+
+  const sortedAgentIds = useMemo(() => {
+    const agentList = Object.values(agents);
+    if (sortBy === "name")
+      return agentList
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((a) => a.id);
+
+    if (sortBy === "startTime") {
+      return agentList
+        .sort((a, b) => {
+          const aTodays = a.segments.filter(
+            (id) => segments[id]?.date === currentDate,
+          );
+          const bTodays = b.segments.filter(
+            (id) => segments[id]?.date === currentDate,
+          );
+
+          const startA =
+            aTodays.length > 0
+              ? Math.min(...aTodays.map((id) => segments[id].startMin))
+              : Infinity;
+          const startB =
+            bTodays.length > 0
+              ? Math.min(...bTodays.map((id) => segments[id].startMin))
+              : Infinity;
+
+          if (startA === startB) return a.name.localeCompare(b.name);
+          return startA - startB;
+        })
+        .map((a) => a.id);
+    }
+    return agentList.map((a) => a.id);
+  }, [agents, segments, sortBy, currentDate]);
+
+  if (!isHydrated) {
+    return (
+      <div className="h-screen w-screen bg-background flex items-center justify-center font-mono text-status-info">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-4 border-status-info border-t-transparent rounded-full animate-spin"></div>
+          Ingesting eWFM Data...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="h-screen w-screen flex flex-col overflow-hidden bg-background text-gray-200 selection:bg-status-info/30">
+      <ValidationModal />
+      <AgentContextModal />
+      <SwapModal />
+
+      <TimelineToolbar
+        currentDate={currentDate}
+        setCurrentDate={setCurrentDate}
+        availableDates={availableDates}
+        sortBy={sortBy}
+        setSortBy={setSortBy}
+        handleForceSync={handleForceSync}
+      />
+
+      <div className="flex-grow overflow-auto flex flex-col relative custom-scrollbar bg-surface/50">
+        <div className="min-w-max pb-20">
+          <div className="sticky top-0 z-40 shadow-md flex flex-col bg-background">
+            <CoverageHeader />
+            <GSTHeader />
+          </div>
+
+          <div className="flex flex-col relative z-0">
+            {sortedAgentIds.map((agentId) => (
+              <AgentRow key={agentId} agentId={agentId} />
+            ))}
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
