@@ -35,14 +35,16 @@ interface ScheduleState {
 
   pendingSwap: PendingSwap | null;
   setPendingSwap: (swap: PendingSwap | null) => void;
-  executeShiftTransfer: (
-    sourceAgentId: string,
-    targetAgentId: string,
+
+  // FIXED: Replaced executeShiftTransfer with executeThreeWaySwap
+  executeShiftSwap: (agentAId: string, agentBId: string, date: string) => void;
+  executeThreeWaySwap: (
+    agentAId: string,
+    agentBId: string,
+    agentCId: string,
     date: string,
   ) => void;
-  executeShiftSwap: (agentAId: string, agentBId: string, date: string) => void;
 
-  // NEW: Cached Coverage Maps
   dailyCoverage: number[];
   dailyScheduledMetrics: number;
   dailyRequiredMetrics: number;
@@ -151,7 +153,6 @@ export const useScheduleStore = create<ScheduleState>()(
       pendingSwap: null,
       setPendingSwap: (swap) => set({ pendingSwap: swap }),
 
-      // FIXED: O(1) Pre-computed coverage array
       dailyCoverage: new Array(1440).fill(0),
       dailyScheduledMetrics: 0,
       dailyRequiredMetrics: 0,
@@ -187,60 +188,6 @@ export const useScheduleStore = create<ScheduleState>()(
             dailyRequiredMetrics: dailyRequired,
           };
         }),
-
-      executeShiftTransfer: (sourceAgentId, targetAgentId, date) => {
-        set((state) => {
-          const sourceAgent = state.agents[sourceAgentId];
-          const targetAgent = state.agents[targetAgentId];
-          if (!sourceAgent || !targetAgent) return state;
-
-          const segmentsToMove = sourceAgent.segments.filter(
-            (id) => state.segments[id]?.date === date,
-          );
-          if (segmentsToMove.length === 0) return state;
-
-          const newSegmentsObj = { ...state.segments };
-          const newEdits = [...state.edits];
-
-          segmentsToMove.forEach((id) => {
-            newSegmentsObj[id] = {
-              ...newSegmentsObj[id],
-              agentId: targetAgentId,
-            };
-            newEdits.unshift({
-              id: `edit_${Date.now()}_${id}`,
-              segmentId: id,
-              segmentName: newSegmentsObj[id].name,
-              type: "REASSIGNMENT",
-              oldStartMin: newSegmentsObj[id].startMin,
-              newStartMin: newSegmentsObj[id].startMin,
-              oldEndMin: newSegmentsObj[id].endMin,
-              newEndMin: newSegmentsObj[id].endMin,
-              timestamp: Date.now(),
-            });
-          });
-
-          return {
-            segments: newSegmentsObj,
-            edits: newEdits,
-            agents: {
-              ...state.agents,
-              [sourceAgentId]: {
-                ...sourceAgent,
-                segments: sourceAgent.segments.filter(
-                  (id) => !segmentsToMove.includes(id),
-                ),
-              },
-              [targetAgentId]: {
-                ...targetAgent,
-                segments: [...targetAgent.segments, ...segmentsToMove],
-              },
-            },
-            pendingSwap: null,
-          };
-        });
-        get().recalculateMetrics();
-      },
 
       executeShiftSwap: (agentAId, agentBId, date) => {
         set((state) => {
@@ -314,11 +261,89 @@ export const useScheduleStore = create<ScheduleState>()(
         get().recalculateMetrics();
       },
 
+      // FIXED: New 3-way swap logic implemented
+      executeThreeWaySwap: (agentAId, agentBId, agentCId, date) => {
+        set((state) => {
+          const agentA = state.agents[agentAId];
+          const agentB = state.agents[agentBId];
+          const agentC = state.agents[agentCId];
+          if (!agentA || !agentB || !agentC) return state;
+
+          const aSegments = agentA.segments.filter(
+            (id) => state.segments[id]?.date === date,
+          );
+          const bSegments = agentB.segments.filter(
+            (id) => state.segments[id]?.date === date,
+          );
+          const cSegments = agentC.segments.filter(
+            (id) => state.segments[id]?.date === date,
+          );
+
+          const newSegmentsObj = { ...state.segments };
+          const newEdits = [...state.edits];
+
+          const reassign = (segIds: string[], newAgentId: string) => {
+            segIds.forEach((id) => {
+              newSegmentsObj[id] = {
+                ...newSegmentsObj[id],
+                agentId: newAgentId,
+              };
+              newEdits.unshift({
+                id: `edit_${Date.now()}_${id}_${Math.random().toString(36).substr(2, 5)}`,
+                segmentId: id,
+                segmentName: newSegmentsObj[id].name,
+                type: "REASSIGNMENT",
+                oldStartMin: newSegmentsObj[id].startMin,
+                newStartMin: newSegmentsObj[id].startMin,
+                oldEndMin: newSegmentsObj[id].endMin,
+                newEndMin: newSegmentsObj[id].endMin,
+                timestamp: Date.now(),
+              });
+            });
+          };
+
+          // A goes to B, B goes to C, C goes to A
+          reassign(aSegments, agentBId);
+          reassign(bSegments, agentCId);
+          reassign(cSegments, agentAId);
+
+          return {
+            segments: newSegmentsObj,
+            edits: newEdits,
+            agents: {
+              ...state.agents,
+              [agentAId]: {
+                ...agentA,
+                segments: [
+                  ...agentA.segments.filter((id) => !aSegments.includes(id)),
+                  ...cSegments,
+                ],
+              },
+              [agentBId]: {
+                ...agentB,
+                segments: [
+                  ...agentB.segments.filter((id) => !bSegments.includes(id)),
+                  ...aSegments,
+                ],
+              },
+              [agentCId]: {
+                ...agentC,
+                segments: [
+                  ...agentC.segments.filter((id) => !cSegments.includes(id)),
+                  ...bSegments,
+                ],
+              },
+            },
+            pendingSwap: null,
+          };
+        });
+        get().recalculateMetrics();
+      },
+
       setSelectedDate: (date) => {
         set({ selectedDate: date });
         get().recalculateMetrics();
       },
-
       setHydratedData: (date, agents, segments, requirements) => {
         set({
           loadedDate: date,
@@ -495,7 +520,6 @@ export const useScheduleStore = create<ScheduleState>()(
         };
       },
 
-      // FIXED: Uses O(1) dailyCoverage array rather than O(N^2) segment loops
       getAggregatedMetrics: (startMin, durationMins) => {
         const state = get();
         const intervals = Math.max(1, durationMins / 15);
