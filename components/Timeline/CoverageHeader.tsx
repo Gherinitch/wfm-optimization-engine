@@ -1,3 +1,4 @@
+// components/Timeline/CoverageHeader.tsx
 "use client";
 
 import { useScheduleStore } from "@/store/useScheduleStore";
@@ -12,7 +13,7 @@ export const CoverageHeader = () => {
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const timelineEndMin = useScheduleStore((state) => state.timelineEndMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
-  const segments = useScheduleStore((state) => state.segments);
+  const dailyCoverage = useScheduleStore((state) => state.dailyCoverage);
 
   const slots = useMemo(() => {
     const s = [];
@@ -26,7 +27,8 @@ export const CoverageHeader = () => {
 
   return (
     <div className="flex w-full border-b border-surfaceBorder bg-background">
-      <div className="w-64 flex-shrink-0 sticky left-0 z-40 bg-surface border-r border-surfaceBorder p-4 flex flex-col justify-end">
+      {/* FIXED: Z-Index set to [100000] */}
+      <div className="w-64 flex-shrink-0 sticky left-0 z-[100000] bg-surface border-r border-surfaceBorder p-4 flex flex-col justify-end">
         <span className="font-heading text-xs text-gray-400 uppercase tracking-widest font-semibold">
           Net Coverage
         </span>
@@ -36,7 +38,6 @@ export const CoverageHeader = () => {
         {slots.map((slot) => {
           const { scheduled, required } = getAggregatedMetrics(slot, zoomLevel);
 
-          // Using our new, hardened formatMetric
           const safeRequired = formatMetric(required);
           const safeScheduled = formatMetric(scheduled);
           const netCoverage = formatMetric(safeScheduled - safeRequired);
@@ -73,7 +74,6 @@ export const CoverageHeader = () => {
                 </span>
               </div>
 
-              {/* FIXED: Z-index increased to 100 to guarantee it sits above all other elements */}
               <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex flex-col bg-surface border border-surfaceBorder rounded-md p-3 text-xs z-[100] shadow-2xl w-40 pointer-events-none">
                 <div className="flex justify-between py-0.5">
                   <span className="text-gray-400">Required</span>

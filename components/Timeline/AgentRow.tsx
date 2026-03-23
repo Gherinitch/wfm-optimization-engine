@@ -2,11 +2,11 @@
 "use client";
 
 import { useScheduleStore } from "@/store/useScheduleStore";
+import { useShallow } from "zustand/react/shallow";
 import { SegmentBlock } from "./SegmentBlock";
 
 export const AgentRow = ({ agentId }: { agentId: string }) => {
-  const agent = useScheduleStore((state) => state.agents[agentId]);
-  const segments = useScheduleStore((state) => state.segments);
+  const agentName = useScheduleStore((state) => state.agents[agentId]?.name);
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const timelineEndMin = useScheduleStore((state) => state.timelineEndMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
@@ -18,48 +18,52 @@ export const AgentRow = ({ agentId }: { agentId: string }) => {
   );
   const setPendingSwap = useScheduleStore((state) => state.setPendingSwap);
 
-  if (!agent) return null;
+  const sortedSegments = useScheduleStore(
+    useShallow((state) => {
+      const ag = state.agents[agentId];
+      if (!ag) return [];
+
+      const todays = ag.segments.filter((segId) => {
+        const seg = state.segments[segId];
+        return seg && seg.date === state.selectedDate;
+      });
+
+      return todays.sort((a, b) => {
+        const segA = state.segments[a];
+        const segB = state.segments[b];
+        if (!segA || !segB) return 0;
+
+        if (segA.rank !== segB.rank) {
+          return segB.rank - segA.rank;
+        }
+        return segB.endMin - segB.startMin - (segA.endMin - segA.startMin);
+      });
+    }),
+  );
+
+  if (!agentName) return null;
 
   const trackWidth = (timelineEndMin - timelineStartMin) * ppm;
 
-  const todaysSegments = agent.segments.filter((segId) => {
-    const seg = segments[segId];
-    return seg && seg.date === selectedDate;
-  });
-
-  // FIXED: Sort by CSV Rank first! (Lower rank = background, Higher rank = foreground)
-  const sortedSegments = [...todaysSegments].sort((a, b) => {
-    const segA = segments[a];
-    const segB = segments[b];
-    if (!segA || !segB) return 0;
-
-    if (segA.rank !== segB.rank) {
-      return segA.rank - segB.rank;
-    }
-    // Fallback: If ranks are identical, put the longer one in the background
-    return segB.endMin - segB.startMin - (segA.endMin - segA.startMin);
-  });
-
   return (
     <div className="flex w-full border-b border-surfaceBorder bg-surface hover:bg-surfaceBorder/30 transition-colors h-12 relative hover:z-50 group/row">
-      <div className="w-64 flex-shrink-0 sticky left-0 z-20 bg-surface border-r border-surfaceBorder flex items-center justify-between px-4 transition-colors group-hover/row:bg-surfaceBorder/50">
+      {/* FIXED: Z-Index set to [100000] so segments slide UNDER the name container */}
+      <div className="w-64 flex-shrink-0 sticky left-0 z-[100000] bg-surface border-r border-surfaceBorder flex items-center justify-between px-4 transition-colors group-hover/row:bg-surfaceBorder/50">
         <div
-          onClick={() => setSelectedAgentId(agent.id)}
+          onClick={() => setSelectedAgentId(agentId)}
           className="flex flex-col truncate cursor-pointer flex-grow"
           title="Click to view weekly schedule"
         >
           <span className="font-heading font-semibold text-sm truncate text-white hover:text-status-info transition-colors">
-            {agent.name}
+            {agentName}
           </span>
-          <span className="font-mono text-[10px] text-gray-500">
-            {agent.id}
-          </span>
+          <span className="font-mono text-[10px] text-gray-500">{agentId}</span>
         </div>
 
         <button
           onClick={() =>
             setPendingSwap({
-              sourceAgentId: agent.id,
+              sourceAgentId: agentId,
               targetAgentId: null,
               date: selectedDate,
             })

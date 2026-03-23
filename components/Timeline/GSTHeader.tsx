@@ -1,3 +1,4 @@
+// components/Timeline/GSTHeader.tsx
 "use client";
 
 import { useScheduleStore } from "@/store/useScheduleStore";
@@ -11,7 +12,7 @@ export const GSTHeader = () => {
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const timelineEndMin = useScheduleStore((state) => state.timelineEndMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
-  const segments = useScheduleStore((state) => state.segments);
+  const dailyCoverage = useScheduleStore((state) => state.dailyCoverage);
 
   const slots = useMemo(() => {
     const s = [];
@@ -25,10 +26,9 @@ export const GSTHeader = () => {
   const trackWidth = (timelineEndMin - timelineStartMin) * ppm;
 
   return (
-    // Set a clean, fixed height
     <div className="flex w-full border-b border-surfaceBorder bg-surface h-10">
-      {/* Matched the p-4 padding to align perfectly with the Net Coverage sidebar */}
-      <div className="w-64 flex-shrink-0 sticky left-0 z-40 bg-surface border-r border-surfaceBorder px-4 flex flex-col justify-center">
+      {/* FIXED: Z-Index set to [100000] */}
+      <div className="w-64 flex-shrink-0 sticky left-0 z-[100000] bg-surface border-r border-surfaceBorder px-4 flex flex-col justify-center">
         <span className="font-heading text-xs text-gray-400 uppercase tracking-widest font-semibold">
           GST (1H)
         </span>
@@ -45,7 +45,6 @@ export const GSTHeader = () => {
 
           const gstPercentage = formatMetric(gst * 100);
 
-          // YOUR NEW LOGIC
           let textColor = "text-status-good";
           if (gst < 0.7) textColor = "text-status-danger";
 
@@ -56,7 +55,6 @@ export const GSTHeader = () => {
               style={{ width: renderWidth * ppm }}
               title={`GST for ${formatTime(slot)} - ${formatTime(slot + 60)}`}
             >
-              {/* Matched the exact font styling of the Net Coverage numbers */}
               <span className={`text-sm font-mono font-bold ${textColor}`}>
                 {gstPercentage}%
               </span>

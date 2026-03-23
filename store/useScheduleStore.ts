@@ -33,7 +33,6 @@ interface ScheduleState {
   originalSegments: Record<string, Segment>;
   edits: EditRecord[];
 
-  // NEW: Drag and Drop Swap Engine
   pendingSwap: PendingSwap | null;
   setPendingSwap: (swap: PendingSwap | null) => void;
   executeShiftTransfer: (
@@ -42,6 +41,12 @@ interface ScheduleState {
     date: string,
   ) => void;
   executeShiftSwap: (agentAId: string, agentBId: string, date: string) => void;
+
+  // NEW: Cached Coverage Maps
+  dailyCoverage: number[];
+  dailyScheduledMetrics: number;
+  dailyRequiredMetrics: number;
+  recalculateMetrics: () => void;
 
   setSelectedDate: (date: string) => void;
   setHydratedData: (
@@ -143,18 +148,52 @@ export const useScheduleStore = create<ScheduleState>()(
         },
       ],
 
-      // NEW: Swap State Default
       pendingSwap: null,
       setPendingSwap: (swap) => set({ pendingSwap: swap }),
 
-      // NEW: 1-Way Transfer Engine
-      executeShiftTransfer: (sourceAgentId, targetAgentId, date) =>
+      // FIXED: O(1) Pre-computed coverage array
+      dailyCoverage: new Array(1440).fill(0),
+      dailyScheduledMetrics: 0,
+      dailyRequiredMetrics: 0,
+
+      recalculateMetrics: () =>
+        set((state) => {
+          const coverage = new Array(1440).fill(0);
+          let dailyScheduled = 0;
+
+          Object.values(state.segments).forEach((seg) => {
+            if (
+              !seg.isGeneral &&
+              seg.category === "Work" &&
+              seg.date === state.selectedDate
+            ) {
+              const start = Math.max(0, seg.startMin);
+              const end = Math.min(1440, seg.endMin);
+              for (let m = start; m < end; m++) {
+                coverage[m]++;
+              }
+              dailyScheduled += (seg.endMin - seg.startMin) / 15;
+            }
+          });
+
+          let dailyRequired = 0;
+          Object.values(state.requirements).forEach((r) => {
+            if (r.date === state.selectedDate) dailyRequired += r.req;
+          });
+
+          return {
+            dailyCoverage: coverage,
+            dailyScheduledMetrics: dailyScheduled,
+            dailyRequiredMetrics: dailyRequired,
+          };
+        }),
+
+      executeShiftTransfer: (sourceAgentId, targetAgentId, date) => {
         set((state) => {
           const sourceAgent = state.agents[sourceAgentId];
           const targetAgent = state.agents[targetAgentId];
           if (!sourceAgent || !targetAgent) return state;
 
-          // Grab ALL segments belonging to the source agent on that specific date
           const segmentsToMove = sourceAgent.segments.filter(
             (id) => state.segments[id]?.date === date,
           );
@@ -168,8 +207,6 @@ export const useScheduleStore = create<ScheduleState>()(
               ...newSegmentsObj[id],
               agentId: targetAgentId,
             };
-
-            // Generate a Reassignment event for the Audit Ledger
             newEdits.unshift({
               id: `edit_${Date.now()}_${id}`,
               segmentId: id,
@@ -201,10 +238,11 @@ export const useScheduleStore = create<ScheduleState>()(
             },
             pendingSwap: null,
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
-      // NEW: 2-Way Swap Engine
-      executeShiftSwap: (agentAId, agentBId, date) =>
+      executeShiftSwap: (agentAId, agentBId, date) => {
         set((state) => {
           const agentA = state.agents[agentAId];
           const agentB = state.agents[agentBId];
@@ -220,7 +258,6 @@ export const useScheduleStore = create<ScheduleState>()(
           const newSegmentsObj = { ...state.segments };
           const newEdits = [...state.edits];
 
-          // Move A's shifts to B
           aSegments.forEach((id) => {
             newSegmentsObj[id] = { ...newSegmentsObj[id], agentId: agentBId };
             newEdits.unshift({
@@ -236,7 +273,6 @@ export const useScheduleStore = create<ScheduleState>()(
             });
           });
 
-          // Move B's shifts to A
           bSegments.forEach((id) => {
             newSegmentsObj[id] = { ...newSegmentsObj[id], agentId: agentAId };
             newEdits.unshift({
@@ -274,11 +310,16 @@ export const useScheduleStore = create<ScheduleState>()(
             },
             pendingSwap: null,
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
-      setSelectedDate: (date) => set({ selectedDate: date }),
+      setSelectedDate: (date) => {
+        set({ selectedDate: date });
+        get().recalculateMetrics();
+      },
 
-      setHydratedData: (date, agents, segments, requirements) =>
+      setHydratedData: (date, agents, segments, requirements) => {
         set({
           loadedDate: date,
           selectedDate: date,
@@ -287,7 +328,9 @@ export const useScheduleStore = create<ScheduleState>()(
           originalSegments: JSON.parse(JSON.stringify(segments)),
           requirements,
           edits: [],
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
       addRule: (rule) => set((state) => ({ rules: [...state.rules, rule] })),
       updateRule: (id, updates) =>
@@ -305,7 +348,7 @@ export const useScheduleStore = create<ScheduleState>()(
           ),
         })),
 
-      updateSegmentTime: (id, newStart, newEnd) =>
+      updateSegmentTime: (id, newStart, newEnd) => {
         set((state) => {
           const segment = state.segments[id];
           if (!segment) return state;
@@ -325,9 +368,11 @@ export const useScheduleStore = create<ScheduleState>()(
             },
             edits: newEdits,
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
-      assignSegmentToAgent: (segmentId, newAgentId) =>
+      assignSegmentToAgent: (segmentId, newAgentId) => {
         set((state) => {
           const segment = state.segments[segmentId];
           if (!segment || segment.agentId === newAgentId) return state;
@@ -351,7 +396,9 @@ export const useScheduleStore = create<ScheduleState>()(
               [segmentId]: { ...segment, agentId: newAgentId },
             },
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
       setZoomLevel: (zoomLevel) => {
         let ppm = 2;
@@ -384,7 +431,7 @@ export const useScheduleStore = create<ScheduleState>()(
 
       setPendingOverride: (override) => set({ pendingOverride: override }),
 
-      confirmPendingOverride: () =>
+      confirmPendingOverride: () => {
         set((state) => {
           if (!state.pendingOverride) return state;
           const { segmentId, newStart, newEnd } = state.pendingOverride;
@@ -407,9 +454,11 @@ export const useScheduleStore = create<ScheduleState>()(
             edits: newEdits,
             pendingOverride: null,
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
-      revertEdit: (editId) =>
+      revertEdit: (editId) => {
         set((state) => {
           const edit = state.edits.find((e) => e.id === editId);
           if (!edit) return state;
@@ -426,65 +475,49 @@ export const useScheduleStore = create<ScheduleState>()(
             },
             edits: state.edits.filter((e) => e.id !== editId),
           };
-        }),
+        });
+        get().recalculateMetrics();
+      },
 
-      clearAllEdits: () =>
+      clearAllEdits: () => {
         set((state) => ({
           segments: JSON.parse(JSON.stringify(state.originalSegments)),
           edits: [],
-        })),
+        }));
+        get().recalculateMetrics();
+      },
 
       getDailyMetrics: () => {
         const state = get();
-        let dailyRequired = 0;
-        let dailyScheduled = 0;
-        Object.values(state.requirements).forEach((r) => {
-          if (r.date === state.selectedDate) {
-            dailyRequired += r.req;
-          }
-        });
-        Object.values(state.segments).forEach((seg) => {
-          if (
-            !seg.isGeneral &&
-            seg.category === "Work" &&
-            seg.date === state.selectedDate
-          ) {
-            dailyScheduled += (seg.endMin - seg.startMin) / 15;
-          }
-        });
-        return { dailyScheduled, dailyRequired };
+        return {
+          dailyScheduled: state.dailyScheduledMetrics,
+          dailyRequired: state.dailyRequiredMetrics,
+        };
       },
 
+      // FIXED: Uses O(1) dailyCoverage array rather than O(N^2) segment loops
       getAggregatedMetrics: (startMin, durationMins) => {
         const state = get();
+        const intervals = Math.max(1, durationMins / 15);
         let totalScheduled = 0;
         let totalRequired = 0;
-        const intervals = Math.max(1, durationMins / 15);
+
         for (let i = 0; i < intervals; i++) {
           const t = startMin + i * 15;
-          let scheduled = 0;
-          Object.values(state.segments).forEach((seg) => {
-            if (
-              !seg.isGeneral &&
-              seg.category === "Work" &&
-              seg.date === state.selectedDate &&
-              t >= seg.startMin &&
-              t < seg.endMin
-            ) {
-              scheduled++;
-            }
-          });
-          totalScheduled += scheduled;
-          const reqKey = `${state.selectedDate}_${t}`;
-          totalRequired += state.requirements[reqKey]?.req || 0;
+          totalScheduled += state.dailyCoverage[t] || 0;
+          totalRequired +=
+            state.requirements[`${state.selectedDate}_${t}`]?.req || 0;
         }
+
         const avgScheduled = totalScheduled / intervals;
         const avgRequired = totalRequired / intervals;
-        const { dailyScheduled, dailyRequired } = state.getDailyMetrics();
         const gst =
-          avgRequired > 0 && dailyRequired > 0
-            ? avgScheduled / avgRequired / (dailyScheduled / dailyRequired)
+          avgRequired > 0 && state.dailyRequiredMetrics > 0
+            ? avgScheduled /
+              avgRequired /
+              (state.dailyScheduledMetrics / state.dailyRequiredMetrics)
             : 1;
+
         return { scheduled: avgScheduled, required: avgRequired, gst };
       },
 

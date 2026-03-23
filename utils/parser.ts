@@ -1,27 +1,9 @@
 // utils/parser.ts
 
+import Papa from "papaparse";
 import { Agent, Segment, SegmentCategory, Requirement } from "@/types/wfm";
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
-
-const splitCsvLine = (line: string): string[] => {
-  const result: string[] = [];
-  let inQuotes = false;
-  let currentWord = "";
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-    } else if (char === "," && !inQuotes) {
-      result.push(currentWord);
-      currentWord = "";
-    } else {
-      currentWord += char;
-    }
-  }
-  result.push(currentWord);
-  return result;
-};
 
 const getCategoryAndType = (
   segmentName: string,
@@ -30,27 +12,22 @@ const getCategoryAndType = (
   const cont = containerName.toUpperCase();
   const seg = segmentName.toUpperCase();
 
-  // 1. Determine Paid Status
   const isPaid = !(cont.includes("UNPAY") || cont.includes("UNPAID"));
 
-  // 2. Invisible Structural Containers
-  // We only hide it if the SEGMENT itself is called "SHIFT" or it's explicitly an "INFO" wrapper.
-  // This protects your actual campaign Work blocks from being hidden!
+  // FIXED: Strict exact-matching to prevent accidentally hiding valid TN-Work shifts
   if (
     seg === "WW-SHIFT" ||
-    cont.includes("CONTAINER") ||
+    cont === "WW-CONTAINER" ||
     cont.includes("INFO") ||
     seg.startsWith("WW-I-")
   ) {
     return { category: "Work", isGeneral: true, isPaid };
   }
 
-  // 3. Absences (Off-Work Exceptions)
   if (cont.includes("ABSOFFWORK")) {
     return { category: "Absence", isGeneral: false, isPaid };
   }
 
-  // 4. On-Work Exceptions (Breaks, Lunches, Meetings)
   if (cont.includes("ABSONWORK")) {
     if (!isPaid) return { category: "Lunch", isGeneral: false, isPaid };
     if (
@@ -63,7 +40,6 @@ const getCategoryAndType = (
     return { category: "Break", isGeneral: false, isPaid };
   }
 
-  // 5. Default: Productive Work!
   return { category: "Work", isGeneral: false, isPaid: true };
 };
 
@@ -105,17 +81,13 @@ const fetchRequirementsCSV = async (): Promise<string> => {
   }
 };
 
-// --- EXPORTED PARSERS ---
-
 export const fetchAvailableDates = async (): Promise<string[]> => {
   const csvText = await fetchRawCSV();
-  const lines = csvText.split("\n").filter((line) => line.trim() !== "");
-
+  const { data } = Papa.parse<string[]>(csvText, { skipEmptyLines: true });
   const dates = new Set<string>();
 
-  for (let i = 1; i < lines.length; i++) {
-    const columns = splitCsvLine(lines[i]);
-    const dateValue = columns[5]?.trim();
+  for (let i = 1; i < data.length; i++) {
+    const dateValue = data[i][5]?.trim();
     if (dateValue && dateValue.includes("-")) dates.add(dateValue);
   }
 
@@ -124,62 +96,41 @@ export const fetchAvailableDates = async (): Promise<string[]> => {
 
 export const parseScheduleData = async (currentDate: string) => {
   const csvText = await fetchRawCSV();
-  const lines = csvText.split("\n").filter((line) => line.trim() !== "");
+  const { data: lines } = Papa.parse<string[]>(csvText, {
+    skipEmptyLines: true,
+  });
 
   const agents: Record<string, Agent> = {};
   const segments: Record<string, Segment> = {};
   const requirements: Record<string, Requirement> = {};
 
-  // DIAGNOSTIC LOGGER: Maps every unique segment configuration to see how the engine categorizes it
-  const diagnosticLog = new Map<string, any>();
-
   for (let i = 1; i < lines.length; i++) {
-    const columns = splitCsvLine(lines[i]);
+    const columns = lines[i];
     if (columns.length < 8) continue;
 
-    const agentId = columns[0].trim();
-    const agentName = columns[1].trim();
-    const segmentName = columns[2].trim();
-    const containerName = columns[3].trim();
+    const agentId = columns[0]?.trim();
+    const agentName = columns[1]?.trim() || "Unknown";
+    const segmentName = columns[2]?.trim() || "";
+    const containerName = columns[3]?.trim() || "";
     const rank = parseInt(columns[4]) || 1;
-    const rowDate = columns[5].trim();
+    const rowDate = columns[5]?.trim();
     const startStr = columns[6]?.trim();
     const endStr = columns[7]?.trim();
 
     if (!startStr || !endStr) continue;
 
     if (!agents[agentId]) {
-      agents[agentId] = {
-        id: agentId,
-        name: agentName.replace(",", " "),
-        segments: [],
-      };
+      agents[agentId] = { id: agentId, name: agentName, segments: [] };
     }
 
     let startMin = timeToMins(startStr);
     let endMin = timeToMins(endStr);
-
-    if (endMin < startMin) {
-      endMin += 1440;
-    }
+    if (endMin < startMin) endMin += 1440;
 
     const { category, isGeneral, isPaid } = getCategoryAndType(
       segmentName,
       containerName,
     );
-
-    // Log the configuration for this specific combination of Segment + Container
-    const logKey = `${segmentName} | ${containerName}`;
-    if (!diagnosticLog.has(logKey)) {
-      diagnosticLog.set(logKey, {
-        Segment: segmentName,
-        Container: containerName,
-        AssignedCategory: category,
-        IsHiddenWrapper: isGeneral,
-        IsPaid: isPaid,
-        Rank: rank,
-      });
-    }
 
     const segId = generateId();
     segments[segId] = {
@@ -197,32 +148,26 @@ export const parseScheduleData = async (currentDate: string) => {
     agents[agentId].segments.push(segId);
   }
 
-  // OUTPUT THE LOGS
-  console.group("🧩 eWFM Parser Diagnostics");
-  console.log("Here is exactly how the engine mapped your CSV data:");
-  console.table(Array.from(diagnosticLog.values()));
-  console.groupEnd();
-
   const reqCsvText = await fetchRequirementsCSV();
   if (reqCsvText) {
-    const reqLines = reqCsvText
-      .split("\n")
-      .filter((line) => line.trim() !== "");
-
+    const { data: reqLines } = Papa.parse<string[]>(reqCsvText, {
+      skipEmptyLines: true,
+    });
     for (let i = 1; i < reqLines.length; i++) {
-      const columns = splitCsvLine(reqLines[i]);
+      const columns = reqLines[i];
       if (columns.length < 3) continue;
 
-      const reqDate = columns[0].trim();
-      const slotStr = columns[1].trim();
-      const reqVal = parseFloat(columns[2].trim()) || 0;
+      const reqDate = columns[0]?.trim();
+      const slotStr = columns[1]?.trim();
+      const reqVal = parseFloat(columns[2]?.trim()) || 0;
 
-      const timeMin = timeToMins(slotStr);
-      requirements[`${reqDate}_${timeMin}`] = {
-        date: reqDate,
-        timeMin,
-        req: reqVal,
-      };
+      if (reqDate && slotStr) {
+        requirements[`${reqDate}_${timeToMins(slotStr)}`] = {
+          date: reqDate,
+          timeMin: timeToMins(slotStr),
+          req: reqVal,
+        };
+      }
     }
   }
 

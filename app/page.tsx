@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
@@ -35,8 +36,6 @@ export default function OptimizationTool() {
   useEffect(() => {
     if (!currentDate) return;
 
-    // FIXED: If we have already downloaded the multi-week CSV, DO NOT fetch it again!
-    // Just tell the store to switch the active viewport date.
     if (loadedDate) {
       useScheduleStore.getState().setSelectedDate(currentDate);
       useScheduleStore.getState().autoFitBounds();
@@ -44,7 +43,6 @@ export default function OptimizationTool() {
       return;
     }
 
-    // Only runs on the very first load
     setIsHydrated(false);
     parseScheduleData(currentDate).then(
       ({ agents, segments, requirements }) => {
@@ -62,7 +60,6 @@ export default function OptimizationTool() {
     setIsHydrated(false);
     parseScheduleData(currentDate).then(
       ({ agents, segments, requirements }) => {
-        // Force sync overwrites the memory and resets edits
         useScheduleStore
           .getState()
           .setHydratedData(currentDate, agents, segments, requirements);
@@ -134,7 +131,8 @@ export default function OptimizationTool() {
 
       <div className="flex-grow overflow-auto flex flex-col relative custom-scrollbar bg-surface/50">
         <div className="min-w-max pb-20">
-          <div className="sticky top-0 z-40 shadow-md flex flex-col bg-background">
+          {/* FIXED: Z-Index 100001 guarantees headers stay above the row sidebar when scrolling down */}
+          <div className="sticky top-0 z-[100001] shadow-md flex flex-col bg-background">
             <CoverageHeader />
             <GSTHeader />
           </div>

@@ -2,17 +2,24 @@
 
 import { EditRecord, Segment, Agent, CustomRule } from "@/types/wfm";
 
+// FIXED: Caching date objects so the drag engine doesn't destroy memory allocation
+const dateCache = new Map<string, number>();
+
 export function getAbsoluteMinutes(
   dateStr: string,
   minutesFromMidnight: number,
 ): number {
-  const date = new Date(`${dateStr}T00:00:00Z`);
-  return Math.floor(date.getTime() / 60000) + minutesFromMidnight;
+  if (!dateCache.has(dateStr)) {
+    dateCache.set(
+      dateStr,
+      Math.floor(new Date(`${dateStr}T00:00:00Z`).getTime() / 60000),
+    );
+  }
+  return dateCache.get(dateStr)! + minutesFromMidnight;
 }
 
-// NEW: Helper to format minutes into a clean 24h string for the dialog box
 const formatTime = (mins: number) => {
-  const normalized = mins % 1440; // Handles cross-midnight blocks safely
+  const normalized = mins % 1440;
   const h = Math.floor(normalized / 60);
   const m = normalized % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
@@ -88,7 +95,6 @@ export function runConstraintEngine(
   const proposedAbsEnd = getAbsoluteMinutes(segment.date, newEndMin);
   const proposedDuration = newEndMin - newStartMin;
 
-  // Hardcoded Overlap Rule
   agentSegments.forEach((other) => {
     if (other.id === segment.id || other.isGeneral) return;
 
@@ -99,7 +105,6 @@ export function runConstraintEngine(
       Math.max(proposedAbsStart, otherAbsStart) <
       Math.min(proposedAbsEnd, otherAbsEnd);
 
-    // FIXED: Detailed Overlap Formatting
     if (overlaps) {
       const timeStr = `${formatTime(other.startMin)} - ${formatTime(other.endMin)}`;
 
@@ -188,7 +193,6 @@ export function runConstraintEngine(
             else if (otherAbsEnd <= proposedAbsStart)
               gap = proposedAbsStart - otherAbsEnd;
 
-            // FIXED: Detailed Gap Formatting
             if (gap > 0 && gap < rule.valueMinutes) {
               const timeStr = `${formatTime(other.startMin)} - ${formatTime(other.endMin)}`;
               violations.push(
