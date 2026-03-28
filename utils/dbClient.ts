@@ -1,4 +1,5 @@
 // utils/dbClient.ts
+import { EditRecord } from "@/types/wfm";
 
 class DbClient {
   worker: Worker | null = null;
@@ -8,16 +9,20 @@ class DbClient {
     { resolve: Function; reject: Function }
   >();
 
+  private readyPromise: Promise<void> | null = null;
+  private resolveReady: (() => void) | null = null;
+
   init() {
-    // Prevent this from running on the Next.js SSR server
     if (typeof window === "undefined") return;
 
-    // Prevent spawning multiple workers if React Strict Mode double-fires
-    if (this.worker) return;
+    if (this.worker) return this.readyPromise;
+
+    this.readyPromise = new Promise((resolve) => {
+      this.resolveReady = resolve;
+    });
 
     console.log("Spawning SQLite Web Worker...");
 
-    // Instantiate the Web Worker (Next.js handles the bundling automatically)
     this.worker = new Worker(
       new URL("../workers/db.worker.ts", import.meta.url),
       {
@@ -25,19 +30,18 @@ class DbClient {
       },
     );
 
-    // Listen for messages coming BACK from the worker
     this.worker.onmessage = (event) => {
       const { type, messageId, results, error } = event.data;
 
       if (type === "DB_READY") {
         console.log("🚀 Main Thread: Worker is online and DB is ready!");
+        if (this.resolveReady) this.resolveReady();
       }
 
       if (type === "DB_ERROR") {
         console.error("Main Thread: Worker failed to initialize DB", error);
       }
 
-      // Handle async query and batch responses
       if (type === "QUERY_SUCCESS" || type === "QUERY_ERROR") {
         const cb = this.callbacks.get(messageId);
         if (cb) {
@@ -47,10 +51,13 @@ class DbClient {
         }
       }
     };
+
+    return this.readyPromise;
   }
 
-  // Execute a single SQL query
   async query(sql: string, params: any[] = []): Promise<any[]> {
+    if (this.readyPromise) await this.readyPromise;
+
     return new Promise((resolve, reject) => {
       if (!this.worker) {
         return reject(new Error("Database Worker is not initialized"));
@@ -68,8 +75,9 @@ class DbClient {
     });
   }
 
-  // Execute a massive batch of SQL queries in a single transaction
   async batch(queries: { sql: string; params?: any[] }[]): Promise<void> {
+    if (this.readyPromise) await this.readyPromise;
+
     return new Promise((resolve, reject) => {
       if (!this.worker) return reject(new Error("Worker not initialized"));
 
@@ -81,5 +89,33 @@ class DbClient {
   }
 }
 
-// Export a single, shared instance
 export const dbClient = new DbClient();
+
+// 🚀 Helper to sync the entire audit log to the database
+export const syncEditsToSqlite = async (edits: EditRecord[]) => {
+  // FIXED: Explicitly type the array so TypeScript knows `params` is allowed!
+  const queries: { sql: string; params?: any[] }[] = [
+    { sql: "DELETE FROM edits;" },
+  ];
+
+  edits.forEach((e) => {
+    queries.push({
+      sql: `INSERT INTO edits (id, entity_type, entity_id, action, old_data, new_data, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        e.id,
+        "SEGMENT",
+        e.segmentId,
+        e.type,
+        JSON.stringify({
+          name: e.segmentName,
+          start: e.oldStartMin,
+          end: e.oldEndMin,
+        }),
+        JSON.stringify({ start: e.newStartMin, end: e.newEndMin }),
+        e.timestamp,
+      ],
+    });
+  });
+
+  return dbClient.batch(queries);
+};

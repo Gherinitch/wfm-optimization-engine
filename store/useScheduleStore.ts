@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { calculateNetEdits, runConstraintEngine } from "@/utils/engine";
+import { dbClient, syncEditsToSqlite } from "@/utils/dbClient";
 import {
   Agent,
   Segment,
@@ -57,6 +58,7 @@ interface ScheduleState {
     agents: Record<string, Agent>,
     segments: Record<string, Segment>,
     requirements: Record<string, Requirement>,
+    edits?: EditRecord[], // <-- Added optional edits parameter
   ) => void;
   addRule: (rule: CustomRule) => void;
   updateRule: (id: string, updates: Partial<CustomRule>) => void;
@@ -172,7 +174,6 @@ export const useScheduleStore = create<ScheduleState>()(
       dailyScheduledMetrics: 0,
       dailyRequiredMetrics: 0,
 
-      // Net-Productive Coverage Engine
       recalculateMetrics: () =>
         set((state) => {
           const coverage = new Array(1440).fill(0);
@@ -185,8 +186,6 @@ export const useScheduleStore = create<ScheduleState>()(
                   seg && seg.date === state.selectedDate && !seg.isGeneral,
               );
 
-            // Create a personal 24-hour minute map for this specific agent
-            // 0 = Not scheduled, 1 = Working, -1 = On an exception (Break, Lunch, etc.)
             const agentMins = new Array(1440).fill(0);
 
             todaysSegs.forEach((seg) => {
@@ -195,24 +194,20 @@ export const useScheduleStore = create<ScheduleState>()(
 
               if (seg.category === "Work") {
                 for (let m = start; m < end; m++) {
-                  // Only plot 'Work' if an exception hasn't already claimed this minute
                   if (agentMins[m] !== -1) agentMins[m] = 1;
                 }
               } else {
                 for (let m = start; m < end; m++) {
-                  // Exceptions forcefully overwrite work minutes
                   agentMins[m] = -1;
                 }
               }
             });
 
-            // Commit this agent's net productive minutes to the global coverage map
             for (let m = 0; m < 1440; m++) {
               if (agentMins[m] === 1) coverage[m]++;
             }
           });
 
-          // Calculate total daily productive intervals
           const totalProductiveMinutes = coverage.reduce(
             (acc, val) => acc + val,
             0,
@@ -231,7 +226,6 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         }),
 
-      // Bulk shift an entire day's schedule while preserving relative segment positioning
       shiftAgentDay: (agentId, date, offsetMins) => {
         set((state) => {
           const agent = state.agents[agentId];
@@ -268,6 +262,16 @@ export const useScheduleStore = create<ScheduleState>()(
           return { segments: newSegmentsObj, edits: updatedEdits };
         });
         get().recalculateMetrics();
+
+        // 🚀 Optimistic Background Sync
+        dbClient
+          .query(
+            `UPDATE segments SET start_min = start_min + ?, end_min = end_min + ? WHERE shift_id = ?`,
+            [offsetMins, offsetMins, `shift_${agentId}_${date}`],
+          )
+          .catch(console.error);
+
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       executeShiftSwap: (agentAId, agentBId, date) => {
@@ -340,9 +344,28 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         });
         get().recalculateMetrics();
+
+        // 🚀 Optimistic Background Sync
+        dbClient
+          .batch([
+            {
+              sql: `UPDATE shifts SET agent_id = 'TEMP_SWAP' WHERE id = ?`,
+              params: [`shift_${agentAId}_${date}`],
+            },
+            {
+              sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
+              params: [agentAId, `shift_${agentBId}_${date}`],
+            },
+            {
+              sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
+              params: [agentBId, `shift_${agentAId}_${date}`],
+            },
+          ])
+          .catch(console.error);
+
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
-      // 3-Way Swap Engine (A -> B, B -> C, C -> A)
       executeThreeWaySwap: (agentAId, agentBId, agentCId, date) => {
         set((state) => {
           const agentA = state.agents[agentAId];
@@ -418,13 +441,37 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         });
         get().recalculateMetrics();
+
+        // 🚀 Optimistic Background Sync
+        dbClient
+          .batch([
+            {
+              sql: `UPDATE shifts SET agent_id = 'TEMP_SWAP_1' WHERE id = ?`,
+              params: [`shift_${agentAId}_${date}`],
+            },
+            {
+              sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
+              params: [agentAId, `shift_${agentCId}_${date}`],
+            },
+            {
+              sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
+              params: [agentCId, `shift_${agentBId}_${date}`],
+            },
+            {
+              sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
+              params: [agentBId, `shift_${agentAId}_${date}`],
+            },
+          ])
+          .catch(console.error);
+
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       setSelectedDate: (date) => {
         set({ selectedDate: date });
         get().recalculateMetrics();
       },
-      setHydratedData: (date, agents, segments, requirements) => {
+      setHydratedData: (date, agents, segments, requirements, edits = []) => {
         set({
           loadedDate: date,
           selectedDate: date,
@@ -432,7 +479,7 @@ export const useScheduleStore = create<ScheduleState>()(
           segments,
           originalSegments: JSON.parse(JSON.stringify(segments)),
           requirements,
-          edits: [],
+          edits, // Now fully loaded from SQLite!
         });
         get().recalculateMetrics();
       },
@@ -475,6 +522,16 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         });
         get().recalculateMetrics();
+
+        // 🚀 Optimistic Background Sync
+        dbClient
+          .query(
+            `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
+            [newStart, newEnd, id],
+          )
+          .catch(console.error);
+
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       assignSegmentToAgent: (segmentId, newAgentId) => {
@@ -546,7 +603,6 @@ export const useScheduleStore = create<ScheduleState>()(
           const newSegmentsObj = { ...state.segments };
           let updatedEdits = [...state.edits];
 
-          // FIXED: If user forces an override on a Work segment, apply group-shift logic
           if (segment.category === "Work") {
             const offsetMins = newStart - segment.startMin;
             const agent = state.agents[segment.agentId];
@@ -572,8 +628,19 @@ export const useScheduleStore = create<ScheduleState>()(
                 );
               }
             });
+
+            // Sync the group shift
+            dbClient
+              .query(
+                `UPDATE segments SET start_min = start_min + ?, end_min = end_min + ? WHERE shift_id = ?`,
+                [
+                  offsetMins,
+                  offsetMins,
+                  `shift_${segment.agentId}_${segment.date}`,
+                ],
+              )
+              .catch(console.error);
           } else {
-            // Standard single-segment override
             newSegmentsObj[segmentId] = {
               ...segment,
               startMin: newStart,
@@ -590,6 +657,14 @@ export const useScheduleStore = create<ScheduleState>()(
                 newEnd,
               );
             }
+
+            // Sync the individual shift
+            dbClient
+              .query(
+                `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
+                [newStart, newEnd, segmentId],
+              )
+              .catch(console.error);
           }
 
           return {
@@ -599,6 +674,7 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         });
         get().recalculateMetrics();
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       revertEdit: (editId) => {
@@ -607,6 +683,15 @@ export const useScheduleStore = create<ScheduleState>()(
           if (!edit) return state;
           const segment = state.segments[edit.segmentId];
           if (!segment) return state;
+
+          // Revert DB optimistic
+          dbClient
+            .query(
+              `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
+              [edit.oldStartMin, edit.oldEndMin, edit.segmentId],
+            )
+            .catch(console.error);
+
           return {
             segments: {
               ...state.segments,
@@ -620,14 +705,26 @@ export const useScheduleStore = create<ScheduleState>()(
           };
         });
         get().recalculateMetrics();
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       clearAllEdits: () => {
-        set((state) => ({
-          segments: JSON.parse(JSON.stringify(state.originalSegments)),
-          edits: [],
-        }));
+        set((state) => {
+          // Send all the reverted segment times back to SQLite
+          const queries = Object.values(state.originalSegments).map((seg) => ({
+            sql: `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
+            params: [seg.startMin, seg.endMin, seg.id],
+          }));
+
+          dbClient.batch(queries).catch(console.error);
+
+          return {
+            segments: JSON.parse(JSON.stringify(state.originalSegments)),
+            edits: [],
+          };
+        });
         get().recalculateMetrics();
+        syncEditsToSqlite(get().edits).catch(console.error);
       },
 
       getDailyMetrics: () => {
@@ -664,7 +761,6 @@ export const useScheduleStore = create<ScheduleState>()(
             ? avgScheduled / avgRequired / dailyRatio
             : 1;
 
-        // Baseline mapped to the 70% SLA target
         const GST_TARGET = 0.7;
         const targetAvgScheduled = GST_TARGET * avgRequired * dailyRatio;
         const varianceMins = Math.round(
@@ -711,11 +807,9 @@ export const useScheduleStore = create<ScheduleState>()(
     }),
     {
       name: "wfm-schedule-storage",
-      // Versioning the store to gracefully push mandatory updates to your users
       version: 6,
       migrate: (persistedState: any, version: number) => {
         if (version < 6) {
-          // If the user's cache is on version 0, force-overwrite their rules with the new defaults
           persistedState.rules = [
             {
               id: "rule_5",

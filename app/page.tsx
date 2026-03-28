@@ -12,6 +12,7 @@ import { parseScheduleData, fetchAvailableDates } from "@/utils/parser";
 import { AgentContextModal } from "@/components/Timeline/AgentContextModal";
 import { SwapModal } from "@/components/Timeline/SwapModal";
 import { dbClient } from "@/utils/dbClient";
+import { importWfmDataToSqlite, fetchDayFromSqlite } from "@/utils/hydration";
 
 type SortOption = "name" | "startTime";
 
@@ -36,40 +37,85 @@ export default function OptimizationTool() {
     });
   }, []);
 
+  // 🚀 THE SMART LOADER: Read from SQLite first!
   useEffect(() => {
     if (!currentDate) return;
 
-    if (loadedDate) {
+    if (loadedDate === currentDate) {
       useScheduleStore.getState().setSelectedDate(currentDate);
       useScheduleStore.getState().autoFitBounds();
       setIsHydrated(true);
       return;
     }
 
-    setIsHydrated(false);
-    parseScheduleData(currentDate).then(
-      ({ agents, segments, requirements }) => {
+    const loadData = async () => {
+      setIsHydrated(false);
+
+      // 1. Try to fetch the day from SQLite
+      const dbData = await fetchDayFromSqlite(currentDate);
+
+      // 2. If SQLite is empty, fall back to parsing the CSV
+      if (Object.keys(dbData.agents).length === 0) {
+        console.warn("⚠️ SQLite is empty. Initializing from CSV...");
+        const csvData = await parseScheduleData(currentDate);
+
+        // Backup the CSV to SQLite immediately
+        await importWfmDataToSqlite(
+          csvData.agents,
+          csvData.segments,
+          csvData.requirements,
+        );
+
         useScheduleStore
           .getState()
-          .setHydratedData(currentDate, agents, segments, requirements);
-        useScheduleStore.getState().autoFitBounds();
-        setIsHydrated(true);
-      },
-    );
+          .setHydratedData(
+            currentDate,
+            csvData.agents,
+            csvData.segments,
+            csvData.requirements,
+          );
+      } else {
+        // 3. Success! Load the data seamlessly from SQLite (including the EDITS!)
+        console.log("✅ Successfully loaded day from SQLite!");
+        useScheduleStore.getState().setHydratedData(
+          currentDate,
+          dbData.agents,
+          dbData.segments,
+          dbData.requirements,
+          dbData.edits, // <-- Edits are restored!
+        );
+      }
+
+      useScheduleStore.getState().autoFitBounds();
+      setIsHydrated(true);
+    };
+
+    loadData();
   }, [currentDate, loadedDate]);
 
   const handleForceSync = () => {
     if (!currentDate) return;
-    setIsHydrated(false);
-    parseScheduleData(currentDate).then(
-      ({ agents, segments, requirements }) => {
-        useScheduleStore
-          .getState()
-          .setHydratedData(currentDate, agents, segments, requirements);
-        useScheduleStore.getState().autoFitBounds();
-        setIsHydrated(true);
-      },
-    );
+    const forceLoad = async () => {
+      setIsHydrated(false);
+      const csvData = await parseScheduleData(currentDate);
+      await importWfmDataToSqlite(
+        csvData.agents,
+        csvData.segments,
+        csvData.requirements,
+      );
+      useScheduleStore
+        .getState()
+        .setHydratedData(
+          currentDate,
+          csvData.agents,
+          csvData.segments,
+          csvData.requirements,
+          [],
+        );
+      useScheduleStore.getState().autoFitBounds();
+      setIsHydrated(true);
+    };
+    forceLoad();
   };
 
   const sortedAgentIds = useMemo(() => {
@@ -111,7 +157,7 @@ export default function OptimizationTool() {
       <div className="h-screen w-screen bg-background flex items-center justify-center font-mono text-status-info">
         <div className="flex flex-col items-center gap-4">
           <div className="w-8 h-8 border-4 border-status-info border-t-transparent rounded-full animate-spin"></div>
-          Ingesting eWFM Data...
+          Loading WFM Data...
         </div>
       </div>
     );
@@ -134,7 +180,6 @@ export default function OptimizationTool() {
 
       <div className="flex-grow overflow-auto flex flex-col relative custom-scrollbar bg-surface/50">
         <div className="min-w-max pb-20">
-          {/* FIXED: Z-Index 100001 guarantees headers stay above the row sidebar when scrolling down */}
           <div className="sticky top-0 z-[100001] shadow-md flex flex-col bg-background">
             <CoverageHeader />
             <GSTHeader />
