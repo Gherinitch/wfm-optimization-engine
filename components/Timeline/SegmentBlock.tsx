@@ -1,10 +1,12 @@
 // components/Timeline/SegmentBlock.tsx
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { DragState } from "./AgentRow";
+
+const ENABLE_TEXT_WRAP = true; 
 
 const formatTime = (mins: number) => {
   const normalized = mins % 1440;
@@ -13,104 +15,125 @@ const formatTime = (mins: number) => {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 };
 
-export const SegmentBlock = ({ segmentId }: { segmentId: string }) => {
+interface SegmentBlockProps {
+  segmentId: string;
+  dragState: DragState | null;
+  setDragState: (state: DragState | null) => void;
+}
+
+export const SegmentBlock = ({ segmentId, dragState, setDragState }: SegmentBlockProps) => {
   const segment = useScheduleStore((state) => state.segments[segmentId]);
-  const updateSegmentTime = useScheduleStore(
-    (state) => state.updateSegmentTime,
-  );
-  const setPendingOverride = useScheduleStore(
-    (state) => state.setPendingOverride,
-  );
-  const getSegmentViolations = useScheduleStore(
-    (state) => state.getSegmentViolations,
-  );
-  const checkHypotheticalViolations = useScheduleStore(
-    (state) => state.checkHypotheticalViolations,
-  );
+  const updateSegmentTime = useScheduleStore((state) => state.updateSegmentTime);
+  const shiftAgentDay = useScheduleStore((state) => state.shiftAgentDay);
+  const setPendingOverride = useScheduleStore((state) => state.setPendingOverride);
+  const getSegmentViolations = useScheduleStore((state) => state.getSegmentViolations);
+  const checkHypotheticalViolations = useScheduleStore((state) => state.checkHypotheticalViolations);
+  
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
-
   if (!segment || segment.isGeneral) return null;
+
+  const isThisDragging = dragState?.segmentId === segmentId;
+  const isGroupDragging = dragState?.category === "Work" && !isThisDragging;
+  const displayOffsetMins = isThisDragging || isGroupDragging ? (dragState?.offsetMins || 0) : 0;
+  const isVisuallyDragging = isThisDragging || isGroupDragging;
 
   const violations = getSegmentViolations(segmentId);
   const hasViolations = violations.length > 0;
 
   const originalX = (segment.startMin - timelineStartMin) * ppm;
   const width = (segment.endMin - segment.startMin) * ppm;
+  const duration = segment.endMin - segment.startMin;
 
-  if (originalX + width < 0) return null;
+  // FIXED: Removed the `originalX + width < 0 -> return null` trap that was unmounting your shifts!
 
-  let bgClass = "bg-gray-500 shadow-sm";
-  switch (segment.category) {
-    case "Work":
-      bgClass =
-        "bg-status-info hover:bg-blue-600 shadow-md ring-1 ring-status-info/50";
-      break;
-    case "Break":
-      bgClass = "bg-status-risk hover:bg-yellow-500 shadow-sm";
-      break;
-    case "Lunch":
-      bgClass = "bg-status-good hover:bg-green-500 shadow-sm";
-      break;
-    case "Meeting":
-      bgClass = "bg-purple-500 hover:bg-purple-600 shadow-sm";
-      break;
-    case "Absence":
-      bgClass = "bg-status-danger hover:bg-red-600 shadow-sm";
-      break;
-  }
-
-  if (hasViolations) {
-    bgClass +=
-      " ring-2 ring-status-danger ring-offset-1 ring-offset-background animate-pulse-slow";
-  }
-
-  const hypotheticalStart = segment.startMin + Math.round(dragOffset / ppm);
-  const hypotheticalEnd =
-    hypotheticalStart + (segment.endMin - segment.startMin);
-  const liveViolations = isDragging
-    ? checkHypotheticalViolations(segmentId, hypotheticalStart, hypotheticalEnd)
+  const hypotheticalStart = segment.startMin + displayOffsetMins;
+  const hypotheticalEnd = segment.endMin + displayOffsetMins;
+  
+  const liveViolations = isThisDragging 
+    ? checkHypotheticalViolations(segmentId, hypotheticalStart, hypotheticalEnd) 
     : [];
+
+  const isActuallyViolating = hasViolations || liveViolations.length > 0;
+
+  let bgClass = "bg-gray-500/70 hover:bg-gray-500/90 backdrop-blur-sm shadow-sm";
+  switch (segment.category) {
+    case "Work": 
+      bgClass = "bg-blue-500/60 hover:bg-blue-500/80 backdrop-blur-md shadow-sm ring-1 ring-blue-400/30"; 
+      break;
+    case "Break": 
+      bgClass = "bg-amber-500/70 hover:bg-amber-500/90 backdrop-blur-md shadow-sm ring-1 ring-amber-400/30"; 
+      break;
+    case "Lunch": 
+      bgClass = "bg-emerald-500/70 hover:bg-emerald-500/90 backdrop-blur-md shadow-sm ring-1 ring-emerald-400/30"; 
+      break;
+    case "Meeting": 
+      bgClass = "bg-purple-500/70 hover:bg-purple-500/90 backdrop-blur-md shadow-sm ring-1 ring-purple-400/30"; 
+      break;
+    case "Absence": 
+      bgClass = "bg-rose-500/70 hover:bg-rose-500/90 backdrop-blur-md shadow-sm ring-1 ring-rose-400/30"; 
+      break;
+  }
+
+  if (isActuallyViolating) {
+    bgClass += " ring-2 ring-rose-500 ring-offset-1 ring-offset-background animate-pulse-slow";
+  }
 
   return (
     <motion.div
-      // FIXED: justify-start applied to outer wrapper as well
-      className={`absolute h-8 top-2 left-0 rounded-md cursor-grab active:cursor-grabbing flex items-center justify-start overflow-hidden transition-colors ${bgClass}`}
+      className={`absolute h-8 top-2 left-0 rounded-md cursor-grab active:cursor-grabbing overflow-hidden transition-colors ${bgClass}`}
       style={{
         width,
-        x: originalX + dragOffset,
-        zIndex: isDragging ? 99999 : 10000 - segment.rank,
+        x: originalX + (displayOffsetMins * ppm),
+        zIndex: isVisuallyDragging ? 99999 : 10000 - segment.rank,
       }}
-      drag="x"
-      dragMomentum={false}
-      dragElastic={0}
-      onDragStart={() => setIsDragging(true)}
-      onDrag={(e, info) => {
+      onPanStart={() => setDragState({ segmentId, category: segment.category, offsetMins: 0 })}
+      onPan={(e, info) => {
         const rawMins = info.offset.x / ppm;
-        const snappedMins = Math.round(rawMins / 15) * 15;
-        setDragOffset(snappedMins * ppm);
+        const absoluteProposedStart = segment.startMin + rawMins;
+        
+        let snappedStart = Math.round(absoluteProposedStart / 15) * 15;
+        
+        // FIXED: Clamp strictly to the 24-hour day, regardless of your zoom level!
+        if (snappedStart < 0) snappedStart = 0;
+        if (snappedStart + duration > 1440) snappedStart = 1440 - duration;
+
+        const offsetMins = snappedStart - segment.startMin;
+        
+        if (dragState?.offsetMins !== offsetMins) {
+          setDragState({ segmentId, category: segment.category, offsetMins });
+        }
       }}
-      onDragEnd={() => {
-        setIsDragging(false);
-        if (dragOffset !== 0) {
-          const minChange = Math.round(dragOffset / ppm);
-          const newStart = segment.startMin + minChange;
-          const newEnd = segment.endMin + minChange;
-          if (liveViolations.length > 0) {
-            setPendingOverride({
-              segmentId,
-              newStart,
-              newEnd,
-              violations: liveViolations,
-            });
+      onPanEnd={(e, info) => {
+        const rawMins = info.offset.x / ppm;
+        const absoluteProposedStart = segment.startMin + rawMins;
+        
+        let snappedStart = Math.round(absoluteProposedStart / 15) * 15;
+        
+        if (snappedStart < 0) snappedStart = 0;
+        if (snappedStart + duration > 1440) snappedStart = 1440 - duration;
+
+        const finalOffset = snappedStart - segment.startMin;
+        
+        setDragState(null); 
+
+        if (finalOffset !== 0) {
+          const finalHypoStart = segment.startMin + finalOffset;
+          const finalHypoEnd = segment.endMin + finalOffset;
+          
+          const finalViolations = checkHypotheticalViolations(segmentId, finalHypoStart, finalHypoEnd);
+
+          if (finalViolations.length > 0) {
+            setPendingOverride({ segmentId, newStart: finalHypoStart, newEnd: finalHypoEnd, violations: finalViolations });
           } else {
-            updateSegmentTime(segmentId, newStart, newEnd);
+            if (segment.category === "Work") {
+              shiftAgentDay(segment.agentId, segment.date, finalOffset);
+            } else {
+              updateSegmentTime(segmentId, finalHypoStart, finalHypoEnd);
+            }
           }
         }
-        setDragOffset(0);
       }}
     >
       <Tooltip
@@ -118,30 +141,33 @@ export const SegmentBlock = ({ segmentId }: { segmentId: string }) => {
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 border-b border-surfaceBorder pb-2">
               <span className="font-heading font-bold">{segment.name}</span>
-              <span className="text-[10px] font-mono px-2 py-0.5 bg-surfaceBorder rounded text-gray-400">
-                Rank: {segment.rank}
-              </span>
+              <span className="text-[10px] font-mono px-2 py-0.5 bg-surfaceBorder rounded text-gray-400">Rank: {segment.rank}</span>
             </div>
             <div className="font-mono text-sm">
-              <span className="text-gray-400">Time:</span>{" "}
-              {formatTime(segment.startMin)} - {formatTime(segment.endMin)}
+              <span className="text-gray-400">Time:</span> {formatTime(hypotheticalStart)} - {formatTime(hypotheticalEnd)}
             </div>
-            {violations.length > 0 && (
+            {isActuallyViolating && (
               <div className="mt-2 pt-2 border-t border-status-danger/30 flex flex-col gap-1">
-                {violations.map((v, i) => (
-                  <span key={i} className="text-xs text-red-400 font-mono">
-                    • {v}
-                  </span>
+                {(liveViolations.length > 0 ? liveViolations : violations).map((v, i) => (
+                  <span key={i} className="text-xs text-red-400 font-mono">• {v}</span>
                 ))}
               </div>
             )}
           </div>
         }
       >
-        <span className="text-[10px] font-heading font-bold text-white/90 truncate px-2 select-none mix-blend-screen drop-shadow-md">
+        <span 
+          className={`font-heading font-bold text-white/95 drop-shadow-md select-none w-full h-full flex items-center
+            ${ENABLE_TEXT_WRAP 
+              ? "whitespace-normal break-words text-center justify-center text-[9px] leading-[10px] px-0.5" 
+              : "truncate justify-start text-[10px] px-2 mix-blend-screen"
+            }
+          `}
+        >
           {segment.name}
         </span>
-        {isDragging && liveViolations.length > 0 && (
+        
+        {isThisDragging && liveViolations.length > 0 && (
           <div className="absolute -top-2 -right-2 w-4 h-4 bg-status-danger rounded-full animate-ping" />
         )}
       </Tooltip>

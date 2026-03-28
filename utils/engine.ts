@@ -2,7 +2,6 @@
 
 import { EditRecord, Segment, Agent, CustomRule } from "@/types/wfm";
 
-// FIXED: Caching date objects so the drag engine doesn't destroy memory allocation
 const dateCache = new Map<string, number>();
 
 export function getAbsoluteMinutes(
@@ -10,12 +9,16 @@ export function getAbsoluteMinutes(
   minutesFromMidnight: number,
 ): number {
   if (!dateCache.has(dateStr)) {
-    dateCache.set(
-      dateStr,
-      Math.floor(new Date(`${dateStr}T00:00:00Z`).getTime() / 60000),
-    );
+    let d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+      const parts = dateStr.split(/[-/]/);
+      if (parts.length === 3 && parts[2].length === 4) {
+        d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00Z`);
+      }
+    }
+    dateCache.set(dateStr, Math.floor(d.getTime() / 60000));
   }
-  return dateCache.get(dateStr)! + minutesFromMidnight;
+  return (dateCache.get(dateStr) || 0) + minutesFromMidnight;
 }
 
 const formatTime = (mins: number) => {
@@ -59,7 +62,7 @@ export function calculateNetEdits(
   } else {
     if (newStart !== oldStart || newEnd !== oldEnd) {
       newEdits.unshift({
-        id: `edit_${Date.now()}`,
+        id: `edit_${Date.now()}_${segmentId}_${Math.random().toString(36).substring(2, 7)}`,
         segmentId,
         segmentName,
         type: "TIME_CHANGE",
@@ -186,6 +189,7 @@ export function runConstraintEngine(
           const overlaps =
             Math.max(proposedAbsStart, otherAbsStart) <
             Math.min(proposedAbsEnd, otherAbsEnd);
+            
           if (!overlaps) {
             let gap = 0;
             if (proposedAbsEnd <= otherAbsStart)
@@ -193,7 +197,7 @@ export function runConstraintEngine(
             else if (otherAbsEnd <= proposedAbsStart)
               gap = proposedAbsStart - otherAbsEnd;
 
-            if (gap > 0 && gap < rule.valueMinutes) {
+            if (gap >= 0 && gap < rule.valueMinutes) {
               const timeStr = `${formatTime(other.startMin)} - ${formatTime(other.endMin)}`;
               violations.push(
                 `[${rule.name}] Rest period between ${rule.targetCategory} and ${rule.referenceCategory} must be at least ${rule.valueMinutes / 60} hours (Failed against shift ${other.name} on ${other.date} at ${timeStr}).`,
