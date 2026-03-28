@@ -9,14 +9,17 @@ import { AgentRow } from "@/components/Timeline/AgentRow";
 import { ValidationModal } from "@/components/Timeline/ValidationModal";
 import { TimelineToolbar } from "@/components/Timeline/TimelineToolbar";
 import { parseScheduleData, fetchAvailableDates } from "@/utils/parser";
-import { AgentContextDrawer } from "@/components/Timeline/AgentContextDrawer";
-import { AgentContextPopover } from "@/components/Timeline/AgentContextPopover";
 import { AgentContextModal } from "@/components/Timeline/AgentContextModal";
 import { SwapModal } from "@/components/Timeline/SwapModal";
+import { dbClient } from "@/utils/dbClient";
 
 type SortOption = "name" | "startTime";
 
 export default function OptimizationTool() {
+  useEffect(() => {
+    dbClient.init();
+  }, []);
+
   const agents = useScheduleStore((state) => state.agents);
   const segments = useScheduleStore((state) => state.segments);
   const loadedDate = useScheduleStore((state) => state.loadedDate);
