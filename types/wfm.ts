@@ -55,7 +55,7 @@ export interface CustomRule {
   valueMinutes: number;
 }
 
-export type EditType = "TIME_CHANGE" | "REASSIGNMENT";
+export type EditType = "TIME_CHANGE" | "REASSIGNMENT" | "DATE_CHANGE";
 
 export interface EditRecord {
   id: string;

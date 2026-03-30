@@ -426,6 +426,54 @@ export const createActionSlice: StateCreator<
     syncEditsToSqlite(get().edits).catch(console.error);
   },
 
+  moveShiftToDate: (agentId, oldDate, newDate) => {
+    set((state) => {
+      const newSegmentsObj = { ...state.segments };
+      const agent = state.agents[agentId];
+      if (!agent) return state;
+
+      // Find all segments this agent is working on the old date
+      const segmentsToMove = agent.segments.filter(
+        (id) => state.segments[id]?.date === oldDate,
+      );
+      if (segmentsToMove.length === 0) return state;
+
+      const newEdits = [...state.edits];
+
+      // Update their dates and log the edit
+      segmentsToMove.forEach((id) => {
+        newSegmentsObj[id] = { ...newSegmentsObj[id], date: newDate };
+
+        newEdits.unshift({
+          id: `edit_${Date.now()}_${id}_date_shift`,
+          segmentId: id,
+          segmentName: newSegmentsObj[id].name,
+          type: "DATE_CHANGE" as any, // We will cast this or update the types next
+          oldStartMin: newSegmentsObj[id].startMin,
+          newStartMin: newSegmentsObj[id].startMin,
+          oldEndMin: newSegmentsObj[id].endMin, // FIXED: Removed the extra 'End'
+          newEndMin: newSegmentsObj[id].endMin,
+          timestamp: Date.now(),
+        });
+      });
+
+      return { segments: newSegmentsObj, edits: newEdits };
+    });
+
+    get().recalculateMetrics();
+
+    // 🚀 Optimistic Background Sync: Update the parent shift's date!
+    dbClient
+      .query(`UPDATE shifts SET date = ? WHERE agent_id = ? AND date = ?`, [
+        newDate,
+        agentId,
+        oldDate,
+      ])
+      .catch(console.error);
+
+    syncEditsToSqlite(get().edits).catch(console.error);
+  },
+
   getSegmentViolations: (segmentId) => {
     const state = get();
     const segment = state.segments[segmentId];

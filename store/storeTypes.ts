@@ -82,6 +82,7 @@ export interface ActionSlice {
     newStartMin: number,
     newEndMin: number,
   ) => string[];
+  moveShiftToDate: (agentId: string, oldDate: string, newDate: string) => void;
 }
 
 // Combine them into the master state!
