@@ -1,41 +1,124 @@
 // app/weekly/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import {
-  fetchDateRangeMetrics,
-  fetchFullWeeklyGrid,
-  executeInterdayMove,
-} from "@/utils/hydration";
+import React, { useEffect, useState, useCallback, useMemo, useRef, memo } from "react";
+import { fetchDateRangeMetrics, fetchFullWeeklyGrid, executeInterdayMove } from "@/utils/hydration";
 import { dbClient } from "@/utils/dbClient";
 import Link from "next/link";
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 const formatTime = (mins: number) => {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  const ampm = h >= 12 ? "PM" : "AM";
+  const ampm = h >= 12 ? 'pm' : 'am';
   const h12 = h % 12 || 12;
-  return `${h12}:${m.toString().padStart(2, "0")}${ampm}`;
+  return `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
 };
+
+type Density = "compact" | "normal" | "large";
+
+const getDStyles = (density: Density) => ({
+  compact: { thPad: "py-2 px-3", cellPad: "px-2 py-1.5", headerDate: "text-xs", headerCov: "text-sm", agentText: "text-xs", shiftText: "text-[11px]", showDuration: false, minHeight: "min-h-[28px]", actionBadge: "text-[10px] px-1 py-0.5", rowHeight: 45 },
+  normal: { thPad: "py-3 px-4", cellPad: "px-3 py-2", headerDate: "text-sm", headerCov: "text-base", agentText: "text-sm", shiftText: "text-xs", showDuration: true, minHeight: "min-h-[36px]", actionBadge: "text-[11px] px-1.5 py-0.5", rowHeight: 60 },
+  large: { thPad: "py-4 px-5", cellPad: "px-4 py-3", headerDate: "text-base", headerCov: "text-lg", agentText: "text-base", shiftText: "text-sm", showDuration: true, minHeight: "min-h-[48px]", actionBadge: "text-xs px-2 py-1", rowHeight: 80 }
+}[density]);
+
+// 🚀 OPTIMIZATION 1: The Memoized Virtual Row (Now using CSS Grid instead of HTML Table)
+const AgentRow = memo(({ agent, metrics, dStyles, activeMove, onCellClick, style, gridColsStyle }: any) => {
+  return (
+    <div 
+      style={{ ...style, ...gridColsStyle }} 
+      className="hover:bg-surface/40 border-b border-surfaceBorder/50 group/row absolute top-0 left-0 w-full"
+    >
+      
+      {/* Sticky Agent Name Column */}
+      <div className={`${dStyles.cellPad} border-r border-surfaceBorder/50 sticky left-0 z-[40] bg-background group-hover/row:bg-surface transform-gpu transition-opacity duration-150 flex items-center ${!activeMove ? 'group-data-[moving=true]/table:opacity-30' : '!opacity-100'}`}>
+        <div className={`font-medium text-gray-300 truncate ${dStyles.agentText}`}>{agent.name}</div>
+      </div>
+
+      {/* The Days */}
+      {metrics.days.map((day: any) => {
+        const shift = agent.schedule[day.date];
+        const hasShift = !!shift;
+        const isThisShiftSelected = activeMove?.sourceDate === day.date;
+        
+        let cellClasses = `${dStyles.cellPad} border-r border-surfaceBorder/50 flex items-center justify-center transition-opacity duration-150 `;
+        let content = null;
+
+        if (hasShift) {
+          const isMorning = shift.start < 720;
+          const themeClasses = isMorning 
+            ? "border-l-4 border-l-amber-500/90 bg-amber-900/40 text-gray-100 border-t border-b border-r border-amber-900/50" 
+            : "border-l-4 border-l-indigo-400/90 bg-indigo-950/40 text-gray-100 border-t border-b border-r border-indigo-950/50";
+          const shiftIcon = isMorning ? "☀️" : "🌙";
+
+          if (isThisShiftSelected) {
+            cellClasses += "!opacity-100 cursor-pointer";
+          } else {
+            cellClasses += "hover:opacity-80 cursor-pointer group-data-[moving=true]/table:opacity-20 group-data-[moving=true]/table:pointer-events-none"; 
+          }
+
+          content = (
+            <div className={`flex items-center justify-center gap-1.5 rounded-r px-2 py-1 shadow-sm pointer-events-none w-full h-full ${themeClasses} ${isThisShiftSelected ? 'ring-2 ring-white shadow-xl brightness-125' : ''}`}>
+              <span className="text-[1.1em] leading-none">{shiftIcon}</span>
+              <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className={`${dStyles.shiftText} tabular-nums font-medium tracking-tight`}>
+                  {formatTime(shift.start)} - {formatTime(shift.end)}
+                </span>
+                {dStyles.showDuration && (
+                  <span className="text-[10px] tabular-nums opacity-60 font-normal">
+                    {Math.round((shift.end - shift.start) / 60)}h
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        } else {
+          if (activeMove) {
+            cellClasses += "!opacity-100 bg-status-good/5 border-2 border-dashed border-status-good/30 cursor-pointer hover:bg-status-good/10 p-1";
+            content = <div className="w-full h-full flex items-center justify-center text-[10px] font-medium uppercase tracking-widest text-status-good tabular-nums">Drop</div>;
+          } else {
+            cellClasses += "text-surfaceBorder/40 group-data-[moving=true]/table:opacity-10 group-data-[moving=true]/table:pointer-events-none";
+            content = <div className="w-full h-full flex items-center justify-center text-sm font-light tabular-nums">-</div>;
+          }
+        }
+
+        return (
+          <div key={day.date} className={cellClasses} onClick={() => onCellClick(agent.id, day.date, hasShift)}>
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  if (prevProps.agent !== nextProps.agent) return false;
+  if (prevProps.dStyles !== nextProps.dStyles) return false;
+  if (prevProps.metrics !== nextProps.metrics) return false;
+  if (prevProps.activeMove !== nextProps.activeMove) return false;
+  if (prevProps.style.top !== nextProps.style.top) return false; // Virtualizer specific check
+  return true; 
+});
 
 export default function WeeklyBalancing() {
   const [metrics, setMetrics] = useState<any>(null);
   const [grid, setGrid] = useState<any[]>([]);
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [isEmpty, setIsEmpty] = useState(false);
+  const [density, setDensity] = useState<Density>("normal");
 
-  // Interaction State: tracks which shift the user is currently trying to move
-  const [moveState, setMoveState] = useState<{
-    agentId: string;
-    sourceDate: string;
-  } | null>(null);
+  const [moveState, setMoveState] = useState<{ agentId: string; sourceDate: string } | null>(null);
   const [isMoving, setIsMoving] = useState(false);
+
+  const moveStateRef = useRef(moveState);
+  const isMovingRef = useRef(isMoving);
+  
+  useEffect(() => { moveStateRef.current = moveState; }, [moveState]);
+  useEffect(() => { isMovingRef.current = isMoving; }, [isMoving]);
 
   const loadData = useCallback(async () => {
     await dbClient.init();
-    const bounds = await dbClient.query(
-      `SELECT MIN(date) as minDate, MAX(date) as maxDate FROM requirements`,
-    );
+    const bounds = await dbClient.query(`SELECT MIN(date) as minDate, MAX(date) as maxDate FROM requirements`);
     if (!bounds[0] || !bounds[0].minDate) {
       setIsEmpty(true);
       return;
@@ -45,256 +128,175 @@ export default function WeeklyBalancing() {
     const dynamicEnd = bounds[0].maxDate;
     setDateRange({ start: dynamicStart, end: dynamicEnd });
 
-    // Fetch both the math and the grid layout in parallel
     const [metricsData, gridData] = await Promise.all([
       fetchDateRangeMetrics(dynamicStart, dynamicEnd),
-      fetchFullWeeklyGrid(dynamicStart, dynamicEnd),
+      fetchFullWeeklyGrid(dynamicStart, dynamicEnd)
     ]);
-
+    
     setMetrics(metricsData);
     setGrid(gridData);
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const loadDataRef = useRef(loadData);
+  useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
-  // The Magic Click Handler
-  const handleCellClick = async (
-    agentId: string,
-    date: string,
-    hasShift: boolean,
-  ) => {
-    if (isMoving) return;
+  const handleCellClick = useCallback(async (agentId: string, date: string, hasShift: boolean) => {
+    if (isMovingRef.current) return;
+    const currentMove = moveStateRef.current;
 
     if (hasShift) {
-      // If clicking a shift, select it (or deselect if already selected)
-      if (moveState?.agentId === agentId && moveState?.sourceDate === date) {
-        setMoveState(null);
+      if (currentMove?.agentId === agentId && currentMove?.sourceDate === date) {
+        setMoveState(null); 
       } else {
-        setMoveState({ agentId, sourceDate: date });
+        setMoveState({ agentId, sourceDate: date }); 
       }
     } else {
-      // If clicking an empty cell, and we have a shift selected for this agent -> MOVE IT!
-      if (moveState?.agentId === agentId) {
+      if (currentMove?.agentId === agentId) {
         setIsMoving(true);
-        await executeInterdayMove(agentId, moveState.sourceDate, date);
+        await executeInterdayMove(agentId, currentMove.sourceDate, date);
         setMoveState(null);
-        await loadData();
+        await loadDataRef.current();
         setIsMoving(false);
       }
     }
-  };
-
-  // Keyboard shortcut to cancel move
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMoveState(null);
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
   }, []);
 
-  if (isEmpty)
-    return (
-      <div className="h-screen w-screen bg-background flex flex-col items-center justify-center font-mono text-status-danger gap-4">
-        <div>⚠️ No data found in the database.</div>
-        <Link
-          href="/"
-          className="px-4 py-2 bg-surface border border-surfaceBorder rounded text-white hover:bg-surfaceBorder transition-colors"
-        >
-          Go to Intraday to load data
-        </Link>
-      </div>
-    );
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoveState(null); };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
 
-  if (!metrics || grid.length === 0)
-    return (
-      <div className="h-screen w-screen bg-background flex items-center justify-center font-mono text-status-info gap-4">
-        <div className="w-6 h-6 border-2 border-status-info border-t-transparent rounded-full animate-spin"></div>
-        Loading Master Grid...
-      </div>
-    );
+  const dStyles = useMemo(() => getDStyles(density), [density]);
+
+  // 🚀 OPTIMIZATION 2: The Virtualizer Hook
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: grid.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => dStyles.rowHeight,
+    overscan: 5, // Renders 5 items outside the visible bounds to prevent flickering
+  });
+
+  if (isEmpty) return (
+    <div className="h-screen w-screen bg-background flex flex-col items-center justify-center font-mono text-status-danger gap-4">
+      <div>⚠️ No data found in the database.</div>
+      <Link href="/" className="px-6 py-3 bg-surface border border-surfaceBorder rounded-lg text-white hover:bg-surfaceBorder transition-colors">Go to Intraday to load data</Link>
+    </div>
+  );
+
+  if (!metrics || grid.length === 0) return (
+    <div className="h-screen w-screen bg-background flex items-center justify-center font-mono text-status-info gap-4 text-xl">
+      <div className="w-8 h-8 border-4 border-status-info border-t-transparent rounded-full animate-spin"></div>
+      Loading Master Grid...
+    </div>
+  );
+
+  // Dynamic CSS Grid Columns mapping to your days + 1 Agent Column
+  const gridColsStyle = {
+    display: 'grid',
+    gridTemplateColumns: `200px repeat(${metrics.days.length}, minmax(160px, 1fr))`
+  };
 
   return (
     <div className="h-screen flex flex-col bg-background text-gray-200 overflow-hidden font-sans">
+      
       {/* Top Bar */}
-      <div className="flex justify-between items-center px-8 py-4 border-b border-surfaceBorder bg-surface">
+      <div className="flex justify-between items-center px-8 py-3 border-b border-surfaceBorder bg-surface z-[100]">
         <div>
-          <h1 className="text-2xl font-heading font-bold text-white">
-            Master Schedule Roster
-          </h1>
-          <div className="flex gap-4 text-sm text-gray-400 mt-1 font-mono">
-            <span>
-              Target:{" "}
-              <strong className="text-status-info">
-                {metrics.weeklyAverageCoverage}%
-              </strong>
-            </span>
-            <span>
-              Req: <strong>{metrics.totalWeekRequired}h</strong>
-            </span>
-            <span>
-              Sched: <strong>{metrics.totalWeekScheduled}h</strong>
-            </span>
+          <h1 className="text-xl font-medium text-gray-200">Master Schedule Roster</h1>
+          <div className="flex gap-4 text-xs text-gray-400 mt-1 tabular-nums">
+            <span>Target: <strong className="text-status-info font-medium">{metrics.weeklyAverageCoverage}%</strong></span>
+            <span>Req: <strong className="font-medium text-gray-300">{metrics.totalWeekRequired}h</strong></span>
+            <span>Sched: <strong className="font-medium text-gray-300">{metrics.totalWeekScheduled}h</strong></span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        
+        <div className="flex items-center gap-5">
           {moveState && (
-            <span className="text-status-warning text-sm font-mono animate-pulse border border-status-warning/50 bg-status-warning/10 px-3 py-1 rounded">
-              Select an empty cell to drop shift (Press ESC to cancel)
+            <span className="text-status-warning text-xs font-medium animate-pulse border border-status-warning/30 bg-status-warning/10 px-3 py-1.5 rounded-full shadow-sm tabular-nums">
+              From {moveState.sourceDate}: {grid.find(a => a.id === moveState.agentId)?.name} (Press ESC to cancel)
             </span>
           )}
-          <Link
-            href="/"
-            className="px-4 py-2 bg-background border border-surfaceBorder rounded hover:bg-surfaceBorder/50 text-sm font-mono transition-colors"
-          >
+
+          <div className="flex items-center bg-background border border-surfaceBorder rounded-md overflow-hidden shadow-inner">
+            <button onClick={() => setDensity("compact")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "compact" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Small</button>
+            <div className="w-px h-3 bg-surfaceBorder"></div>
+            <button onClick={() => setDensity("normal")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "normal" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Med</button>
+            <div className="w-px h-3 bg-surfaceBorder"></div>
+            <button onClick={() => setDensity("large")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "large" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Large</button>
+          </div>
+
+          <Link href="/" className="px-4 py-1.5 bg-background border border-surfaceBorder rounded-md hover:bg-surface/50 text-xs font-medium transition-colors">
             ← Back to Intraday
           </Link>
         </div>
       </div>
 
-      {/* The Master Grid */}
-      <div className="flex-1 overflow-auto custom-scrollbar relative">
-        <table className="w-full text-left border-collapse min-w-max">
-          {/* Table Headers with Integrated Metrics! */}
-          <thead className="sticky top-0 z-[50] bg-surface shadow-md">
-            <tr>
-              <th className="p-4 border-b border-r border-surfaceBorder w-[250px] sticky left-0 z-[60] bg-surface">
-                <div className="text-xs uppercase tracking-widest text-gray-500 font-mono">
-                  Agent Name
-                </div>
-              </th>
-              {metrics.days.map((day: any) => {
-                const isOver = day.status === "OVERSTAFFED";
-                const isUnder = day.status === "UNDERSTAFFED";
-                let colorClass = "text-status-good";
-                if (isOver) colorClass = "text-status-danger";
-                if (isUnder) colorClass = "text-status-info";
+      {/* 🚀 OPTIMIZATION 3: The Virtualized Scroll Container */}
+      <div ref={parentRef} className="flex-1 overflow-auto custom-scrollbar relative will-change-scroll">
+        
+        {/* We use a fit-content wrapper so horizontal scrolling works perfectly with our CSS Grid */}
+        <div style={{ minWidth: 'fit-content' }} className="group/table" data-moving={!!moveState}>
+          
+          {/* CSS Grid Header (Sticky Top) */}
+          <div style={gridColsStyle} className="sticky top-0 z-[50] border-b-2 border-surfaceBorder bg-surface shadow-sm w-full">
+            <div className={`${dStyles.thPad} border-r border-surfaceBorder sticky left-0 z-[60] bg-surface transform-gpu flex items-center`}>
+              <div className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Agent</div>
+            </div>
+            
+            {metrics.days.map((day: any) => {
+              const isOver = day.status === "OVERSTAFFED";
+              const isUnder = day.status === "UNDERSTAFFED";
+              let colorClass = "text-gray-300"; 
+              if (isOver) colorClass = "text-status-danger";
+              if (isUnder) colorClass = "text-status-info";
 
-                return (
-                  <th
-                    key={day.date}
-                    className="p-0 border-b border-r border-surfaceBorder min-w-[160px] bg-surface relative"
-                  >
-                    <div className="flex flex-col items-center justify-center py-3">
-                      <span className="font-bold text-white">
-                        {new Date(day.date).toLocaleDateString("en-US", {
-                          weekday: "short",
-                        })}{" "}
-                        {day.date.substring(5)}
-                      </span>
-
-                      <div className="flex items-center gap-2 mt-1 font-mono text-xs">
-                        <span className="text-gray-400">
-                          {day.coveragePct}%
+              return (
+                <div key={day.date} className="border-r border-surfaceBorder bg-surface bg-clip-padding relative flex flex-col items-center justify-center">
+                  <div className={`flex flex-col items-center justify-center ${dStyles.thPad} w-full`}>
+                    <span className={`font-medium text-gray-100 ${dStyles.headerDate}`}>
+                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })} <span className="text-gray-500 text-[0.85em] font-normal tabular-nums">{day.date.substring(5)}</span>
+                    </span>
+                    <div className="flex items-center gap-1.5 mt-1 tabular-nums">
+                      <span className={`font-medium ${colorClass} ${dStyles.headerCov}`}>{day.coveragePct}%</span>
+                      {!day.isWithinTolerance && (
+                        <span className={`rounded font-medium ${dStyles.actionBadge} ${isOver ? 'bg-status-danger/10 text-status-danger' : 'bg-status-info/10 text-status-info'}`}>
+                          {day.hoursToMove > 0 ? '+' : ''}{day.hoursToMove}h
                         </span>
-
-                        {/* Action Badge inline in header */}
-                        {day.isWithinTolerance ? (
-                          <span className="bg-status-good/10 text-status-good px-1.5 py-0.5 rounded">
-                            OK
-                          </span>
-                        ) : (
-                          <span
-                            className={`px-1.5 py-0.5 rounded font-bold ${isOver ? "bg-status-danger/10 text-status-danger" : "bg-status-info/10 text-status-info"}`}
-                          >
-                            {day.hoursToMove > 0 ? "+" : ""}
-                            {day.hoursToMove}h
-                          </span>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-          {/* Table Body (Agent Rows) */}
-          <tbody className="bg-background">
-            {grid.map((agent) => (
-              <tr
-                key={agent.id}
-                className="hover:bg-surface/30 transition-colors border-b border-surfaceBorder group"
-              >
-                {/* Agent Name Column (Sticky left) */}
-                <td className="p-4 border-r border-surfaceBorder sticky left-0 z-[40] bg-background group-hover:bg-surface/50 transition-colors">
-                  <div className="font-bold text-gray-200">{agent.name}</div>
-                </td>
+          {/* The Virtualized Body Container */}
+          <div 
+            style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }} 
+            className="bg-background"
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const agent = grid[virtualRow.index];
+              return (
+                <AgentRow 
+                  key={agent.id} 
+                  agent={agent} 
+                  metrics={metrics} 
+                  dStyles={dStyles} 
+                  activeMove={moveState?.agentId === agent.id ? moveState : null} 
+                  onCellClick={handleCellClick}
+                  // Virtualizer applies position: absolute and translates the row down
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  gridColsStyle={gridColsStyle}
+                />
+              );
+            })}
+          </div>
 
-                {/* The Days */}
-                {metrics.days.map((day: any) => {
-                  const shift = agent.schedule[day.date];
-                  const hasShift = !!shift;
-
-                  // Logic to figure out how this cell should look based on the Move State
-                  const isThisAgentActive = moveState?.agentId === agent.id;
-                  const isThisShiftSelected =
-                    isThisAgentActive && moveState?.sourceDate === day.date;
-
-                  let cellClasses =
-                    "p-2 border-r border-surfaceBorder h-full transition-all ";
-                  let content = null;
-
-                  if (hasShift) {
-                    if (isThisShiftSelected) {
-                      cellClasses +=
-                        "bg-status-info/20 shadow-[inset_0_0_0_2px_#3b82f6] cursor-pointer";
-                    } else if (moveState) {
-                      cellClasses += "opacity-30 pointer-events-none"; // Dim other shifts while moving
-                    } else {
-                      cellClasses += "hover:bg-surface-light cursor-pointer";
-                    }
-
-                    content = (
-                      <div className="flex flex-col items-center justify-center bg-surface border border-surfaceBorder rounded p-2 shadow-sm pointer-events-none">
-                        <span className="text-xs font-mono text-gray-300">
-                          {formatTime(shift.start)} - {formatTime(shift.end)}
-                        </span>
-                        <span className="text-[10px] text-gray-500 mt-0.5">
-                          {Math.round((shift.end - shift.start) / 60)}h shift
-                        </span>
-                      </div>
-                    );
-                  } else {
-                    if (isThisAgentActive) {
-                      // This is a DROP ZONE!
-                      cellClasses +=
-                        "bg-status-good/5 border-2 border-dashed border-status-good/50 cursor-pointer hover:bg-status-good/20";
-                      content = (
-                        <div className="h-full w-full flex items-center justify-center text-xs font-mono text-status-good font-bold uppercase tracking-widest">
-                          Move Here
-                        </div>
-                      );
-                    } else if (moveState) {
-                      cellClasses += "opacity-30 pointer-events-none"; // Dim other agents' empty cells
-                    } else {
-                      cellClasses += "text-gray-600/50";
-                      content = (
-                        <div className="h-full w-full flex items-center justify-center text-xs font-mono">
-                          OFF
-                        </div>
-                      );
-                    }
-                  }
-
-                  return (
-                    <td
-                      key={day.date}
-                      className={cellClasses}
-                      onClick={() =>
-                        handleCellClick(agent.id, day.date, hasShift)
-                      }
-                    >
-                      {content}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        </div>
       </div>
     </div>
   );
