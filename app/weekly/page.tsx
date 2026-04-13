@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useMemo, useRef, memo } from "react";
-import { fetchDateRangeMetrics, fetchFullWeeklyGrid, executeInterdayMove } from "@/utils/hydration";
+import { fetchDateRangeMetrics, fetchFullWeeklyGrid, executeInterdayMove, fetchAvailableWorkSegments } from "@/utils/hydration";
 import { dbClient } from "@/utils/dbClient";
 import Link from "next/link";
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -23,20 +23,17 @@ const getDStyles = (density: Density) => ({
   large: { thPad: "py-4 px-5", cellPad: "px-4 py-3", headerDate: "text-base", headerCov: "text-lg", agentText: "text-base", shiftText: "text-sm", showDuration: true, minHeight: "min-h-[48px]", actionBadge: "text-xs px-2 py-1", rowHeight: 80 }
 }[density]);
 
-// 🚀 OPTIMIZATION 1: The Memoized Virtual Row (Now using CSS Grid instead of HTML Table)
+// The Memoized Virtual Row
 const AgentRow = memo(({ agent, metrics, dStyles, activeMove, onCellClick, style, gridColsStyle }: any) => {
   return (
     <div 
       style={{ ...style, ...gridColsStyle }} 
       className="hover:bg-surface/40 border-b border-surfaceBorder/50 group/row absolute top-0 left-0 w-full"
     >
-      
-      {/* Sticky Agent Name Column */}
       <div className={`${dStyles.cellPad} border-r border-surfaceBorder/50 sticky left-0 z-[40] bg-background group-hover/row:bg-surface transform-gpu transition-opacity duration-150 flex items-center ${!activeMove ? 'group-data-[moving=true]/table:opacity-30' : '!opacity-100'}`}>
         <div className={`font-medium text-gray-300 truncate ${dStyles.agentText}`}>{agent.name}</div>
       </div>
 
-      {/* The Days */}
       {metrics.days.map((day: any) => {
         const shift = agent.schedule[day.date];
         const hasShift = !!shift;
@@ -96,7 +93,7 @@ const AgentRow = memo(({ agent, metrics, dStyles, activeMove, onCellClick, style
   if (prevProps.dStyles !== nextProps.dStyles) return false;
   if (prevProps.metrics !== nextProps.metrics) return false;
   if (prevProps.activeMove !== nextProps.activeMove) return false;
-  if (prevProps.style.top !== nextProps.style.top) return false; // Virtualizer specific check
+  if (prevProps.style.top !== nextProps.style.top) return false; 
   return true; 
 });
 
@@ -106,6 +103,10 @@ export default function WeeklyBalancing() {
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
   const [isEmpty, setIsEmpty] = useState(false);
   const [density, setDensity] = useState<Density>("normal");
+
+  // Filter State
+  const [availableSegments, setAvailableSegments] = useState<string[]>([]);
+  const [segmentFilter, setSegmentFilter] = useState<string>("");
 
   const [moveState, setMoveState] = useState<{ agentId: string; sourceDate: string } | null>(null);
   const [isMoving, setIsMoving] = useState(false);
@@ -128,14 +129,17 @@ export default function WeeklyBalancing() {
     const dynamicEnd = bounds[0].maxDate;
     setDateRange({ start: dynamicStart, end: dynamicEnd });
 
-    const [metricsData, gridData] = await Promise.all([
+    // Fetch the metrics, the filtered grid, and the dropdown segments
+    const [metricsData, gridData, segmentsData] = await Promise.all([
       fetchDateRangeMetrics(dynamicStart, dynamicEnd),
-      fetchFullWeeklyGrid(dynamicStart, dynamicEnd)
+      fetchFullWeeklyGrid(dynamicStart, dynamicEnd, segmentFilter),
+      fetchAvailableWorkSegments()
     ]);
     
     setMetrics(metricsData);
     setGrid(gridData);
-  }, []);
+    setAvailableSegments(segmentsData);
+  }, [segmentFilter]); // Re-run loadData whenever the filter changes
 
   const loadDataRef = useRef(loadData);
   useEffect(() => { loadDataRef.current = loadData; }, [loadData]);
@@ -170,13 +174,12 @@ export default function WeeklyBalancing() {
 
   const dStyles = useMemo(() => getDStyles(density), [density]);
 
-  // 🚀 OPTIMIZATION 2: The Virtualizer Hook
   const parentRef = useRef<HTMLDivElement>(null);
   const rowVirtualizer = useVirtualizer({
     count: grid.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => dStyles.rowHeight,
-    overscan: 5, // Renders 5 items outside the visible bounds to prevent flickering
+    overscan: 5,
   });
 
   if (isEmpty) return (
@@ -186,14 +189,13 @@ export default function WeeklyBalancing() {
     </div>
   );
 
-  if (!metrics || grid.length === 0) return (
+  if (!metrics || !availableSegments) return (
     <div className="h-screen w-screen bg-background flex items-center justify-center font-mono text-status-info gap-4 text-xl">
       <div className="w-8 h-8 border-4 border-status-info border-t-transparent rounded-full animate-spin"></div>
       Loading Master Grid...
     </div>
   );
 
-  // Dynamic CSS Grid Columns mapping to your days + 1 Agent Column
   const gridColsStyle = {
     display: 'grid',
     gridTemplateColumns: `200px repeat(${metrics.days.length}, minmax(160px, 1fr))`
@@ -220,6 +222,21 @@ export default function WeeklyBalancing() {
             </span>
           )}
 
+          {/* Segment Filter */}
+          <div className="flex items-center gap-2 bg-background border border-surfaceBorder rounded-md px-3 py-1.5 shadow-inner">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
+            <select 
+              className="bg-transparent text-[11px] font-medium text-white focus:outline-none cursor-pointer"
+              value={segmentFilter}
+              onChange={(e) => setSegmentFilter(e.target.value)}
+            >
+              <option value="">All Segments</option>
+              {availableSegments.map(seg => (
+                <option key={seg} value={seg}>{seg}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex items-center bg-background border border-surfaceBorder rounded-md overflow-hidden shadow-inner">
             <button onClick={() => setDensity("compact")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "compact" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Small</button>
             <div className="w-px h-3 bg-surfaceBorder"></div>
@@ -234,13 +251,10 @@ export default function WeeklyBalancing() {
         </div>
       </div>
 
-      {/* 🚀 OPTIMIZATION 3: The Virtualized Scroll Container */}
       <div ref={parentRef} className="flex-1 overflow-auto custom-scrollbar relative will-change-scroll">
-        
-        {/* We use a fit-content wrapper so horizontal scrolling works perfectly with our CSS Grid */}
         <div style={{ minWidth: 'fit-content' }} className="group/table" data-moving={!!moveState}>
           
-          {/* CSS Grid Header (Sticky Top) */}
+          {/* CSS Grid Header */}
           <div style={gridColsStyle} className="sticky top-0 z-[50] border-b-2 border-surfaceBorder bg-surface shadow-sm w-full">
             <div className={`${dStyles.thPad} border-r border-surfaceBorder sticky left-0 z-[60] bg-surface transform-gpu flex items-center`}>
               <div className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">Agent</div>
@@ -273,28 +287,32 @@ export default function WeeklyBalancing() {
             })}
           </div>
 
-          {/* The Virtualized Body Container */}
-          <div 
-            style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }} 
-            className="bg-background"
-          >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const agent = grid[virtualRow.index];
-              return (
-                <AgentRow 
-                  key={agent.id} 
-                  agent={agent} 
-                  metrics={metrics} 
-                  dStyles={dStyles} 
-                  activeMove={moveState?.agentId === agent.id ? moveState : null} 
-                  onCellClick={handleCellClick}
-                  // Virtualizer applies position: absolute and translates the row down
-                  style={{ transform: `translateY(${virtualRow.start}px)` }}
-                  gridColsStyle={gridColsStyle}
-                />
-              );
-            })}
-          </div>
+          {grid.length === 0 ? (
+             <div className="flex items-center justify-center h-40 text-gray-500 font-mono text-sm">
+               No agents scheduled with the selected filter.
+             </div>
+          ) : (
+            <div 
+              style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }} 
+              className="bg-background"
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const agent = grid[virtualRow.index];
+                return (
+                  <AgentRow 
+                    key={agent.id} 
+                    agent={agent} 
+                    metrics={metrics} 
+                    dStyles={dStyles} 
+                    activeMove={moveState?.agentId === agent.id ? moveState : null} 
+                    onCellClick={handleCellClick}
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                    gridColsStyle={gridColsStyle}
+                  />
+                );
+              })}
+            </div>
+          )}
 
         </div>
       </div>

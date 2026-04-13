@@ -410,32 +410,57 @@ export async function executeInterdayMove(
 }
 // utils/hydration.ts (Add to bottom)
 
-export async function fetchFullWeeklyGrid(startDate: string, endDate: string) {
-  // 1. Get all agents
-  const agentsRes = await dbClient.query(
-    `SELECT id, name FROM agents ORDER BY name`,
-  );
 
-  // 2. Get all productive work shifts within the date range
-  const shiftsRes = await dbClient.query(
-    `
+// utils/hydration.ts (Add these functions)
+
+// 1. Fetch all unique productive segment names for the filter dropdowns
+export async function fetchAvailableWorkSegments() {
+  const res = await dbClient.query(`
+    SELECT DISTINCT name 
+    FROM segments 
+    WHERE category = 'Work' 
+    ORDER BY name
+  `);
+  return res.map((r: any) => r.name);
+}
+
+// 2. Updated Grid Fetcher to accept a segment filter
+export async function fetchFullWeeklyGrid(startDate: string, endDate: string, segmentFilter: string = "") {
+  const agentsRes = await dbClient.query(`SELECT id, name FROM agents ORDER BY name`);
+  
+  // If a filter is applied, only grab shifts that contain that specific work segment
+  let query = `
     SELECT s.agent_id, s.date, MIN(seg.start_min) as start_min, MAX(seg.end_min) as end_min
     FROM shifts s
     JOIN segments seg ON s.id = seg.shift_id
     WHERE s.date BETWEEN ? AND ? AND seg.category = 'Work'
-    GROUP BY s.id
-  `,
-    [startDate, endDate],
-  );
+  `;
+  const params: any[] = [startDate, endDate];
 
-  // 3. Map the shifts onto the agents
-  return agentsRes.map((agent) => {
-    const schedule: Record<string, { start: number; end: number }> = {};
+  if (segmentFilter) {
+    query += ` AND s.id IN (SELECT shift_id FROM segments WHERE name = ?)`;
+    params.push(segmentFilter);
+  }
+
+  query += ` GROUP BY s.id`;
+  
+  const shiftsRes = await dbClient.query(query, params);
+
+  // Map and filter out agents who have empty schedules (if a filter is applied)
+  const grid = agentsRes.map(agent => {
+    const schedule: Record<string, { start: number, end: number }> = {};
+    let hasMatchingShift = false;
+    
     shiftsRes
       .filter((s: any) => s.agent_id === agent.id)
       .forEach((s: any) => {
         schedule[s.date] = { start: s.start_min, end: s.end_min };
+        hasMatchingShift = true;
       });
-    return { id: agent.id, name: agent.name, schedule };
+      
+    return { id: agent.id, name: agent.name, schedule, hasMatchingShift };
   });
+
+  // If filtering, completely remove agents who aren't working that segment this week
+  return segmentFilter ? grid.filter(a => a.hasMatchingShift) : grid;
 }
