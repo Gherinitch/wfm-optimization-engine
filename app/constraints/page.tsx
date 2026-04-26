@@ -39,6 +39,7 @@ export default function ConstraintsPage() {
   const [minutes, setMinutes] = useState<number>(0);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
   }, []);
 

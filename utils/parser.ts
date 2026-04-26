@@ -94,7 +94,7 @@ export const fetchAvailableDates = async (): Promise<string[]> => {
   return Array.from(dates).sort();
 };
 
-export const parseScheduleData = async (currentDate: string) => {
+export const parseScheduleData = async () => {
   const csvText = await fetchRawCSV();
   const { data: lines } = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
@@ -123,7 +123,7 @@ export const parseScheduleData = async (currentDate: string) => {
       agents[agentId] = { id: agentId, name: agentName, segments: [] };
     }
 
-    let startMin = timeToMins(startStr);
+    const startMin = timeToMins(startStr);
     let endMin = timeToMins(endStr);
     if (endMin < startMin) endMin += 1440;
 

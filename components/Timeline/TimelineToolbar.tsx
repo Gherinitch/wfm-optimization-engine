@@ -1,6 +1,8 @@
 "use client";
 
+import React from "react";
 import { useScheduleStore } from "@/store/useScheduleStore";
+import { generateDeltaExport } from "@/utils/export";
 import Link from "next/link";
 
 const HOURS = Array.from({ length: 25 }, (_, i) => ({
@@ -35,6 +37,31 @@ export const TimelineToolbar = ({
   const zoomLevel = useScheduleStore((state) => state.zoomLevel);
   const setZoomLevel = useScheduleStore((state) => state.setZoomLevel);
   const edits = useScheduleStore((state) => state.edits);
+  const segments = useScheduleStore((state) => state.segments);
+  const originalSegments = useScheduleStore((state) => state.originalSegments);
+  const runIntradayOptimization = useScheduleStore((state) => state.runIntradayOptimization);
+  const isOptimizing = useScheduleStore((state) => state.isOptimizing);
+  const optimizationProgress = useScheduleStore((state) => state.optimizationProgress);
+
+  const handleAutoGST = () => {
+    runIntradayOptimization(currentDate);
+  };
+
+  const handleExport = () => {
+    const csvContent = generateDeltaExport(originalSegments, segments);
+    if (!csvContent) {
+      alert("No changes to export!");
+      return;
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `wfm_export_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   return (
     <header className="h-auto min-h-16 py-3 border-b border-surfaceBorder flex flex-wrap items-center px-6 justify-between shrink-0 bg-surface z-50 shadow-md gap-4">
@@ -156,6 +183,25 @@ export const TimelineToolbar = ({
               <span>📝</span> Edits ({edits.length})
             </button>
           </Link>
+          <button
+            onClick={handleAutoGST}
+            disabled={isOptimizing}
+            className="relative overflow-hidden px-3 py-1.5 font-mono text-[11px] uppercase tracking-widest font-bold bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded hover:bg-amber-500 hover:text-black transition-colors disabled:opacity-100 disabled:cursor-not-allowed"
+          >
+            {isOptimizing && (
+              <div 
+                className="absolute inset-0 bg-amber-500/40 transition-all duration-200 pointer-events-none" 
+                style={{ width: `${optimizationProgress}%` }}
+              ></div>
+            )}
+            <span className="relative z-10">{isOptimizing ? `Optimizing... ${Math.round(optimizationProgress)}%` : "Auto GST"}</span>
+          </button>
+          <button
+            onClick={handleExport}
+            className="px-3 py-1.5 font-mono text-[11px] uppercase tracking-widest font-bold bg-status-good/20 text-status-good border border-status-good/30 rounded hover:bg-status-good hover:text-black transition-colors"
+          >
+            Export Sync
+          </button>
         </div>
       </div>
     </header>

@@ -20,6 +20,7 @@ export const Tooltip = ({ children, content }: TooltipProps) => {
   const mouseY = useMotionValue(0);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

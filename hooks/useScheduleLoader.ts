@@ -31,6 +31,7 @@ export function useScheduleLoader() {
     if (loadedDate === currentDate) {
       useScheduleStore.getState().setSelectedDate(currentDate);
       useScheduleStore.getState().autoFitBounds();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsHydrated(true);
       return;
     }

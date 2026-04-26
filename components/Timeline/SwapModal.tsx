@@ -11,6 +11,25 @@ const formatTime = (mins: number) => {
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 };
 
+// Clean UI component for displaying the time range
+const ShiftBadge = ({
+  bounds,
+}: {
+  bounds: { startMin: number; endMin: number } | null;
+}) => {
+  if (!bounds)
+    return (
+      <span className="text-gray-500 italic text-xs bg-surfaceBorder/30 px-2 py-1 rounded">
+        Day Off
+      </span>
+    );
+  return (
+    <span className="font-mono text-[11px] text-gray-200 bg-surfaceBorder/30 px-2 py-1 rounded border border-surfaceBorder shadow-sm">
+      {formatTime(bounds.startMin)} - {formatTime(bounds.endMin)}
+    </span>
+  );
+};
+
 export const SwapModal = () => {
   const pendingSwap = useScheduleStore((state) => state.pendingSwap);
   const setPendingSwap = useScheduleStore((state) => state.setPendingSwap);
@@ -28,6 +47,7 @@ export const SwapModal = () => {
   // Reset local state when modal closes
   useEffect(() => {
     if (!pendingSwap) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTargetB("");
       setTargetC("");
       setSwapType("2-way");
@@ -86,25 +106,6 @@ export const SwapModal = () => {
   const sourceBounds = getShiftBounds(sourceAgent.id);
   const targetBBounds = getShiftBounds(targetB);
   const targetCBounds = getShiftBounds(targetC);
-
-  // Clean UI component for displaying the time range
-  const ShiftBadge = ({
-    bounds,
-  }: {
-    bounds: { startMin: number; endMin: number } | null;
-  }) => {
-    if (!bounds)
-      return (
-        <span className="text-gray-500 italic text-xs bg-surfaceBorder/30 px-2 py-1 rounded">
-          Day Off
-        </span>
-      );
-    return (
-      <span className="font-mono text-[11px] text-gray-200 bg-surfaceBorder/30 px-2 py-1 rounded border border-surfaceBorder shadow-sm">
-        {formatTime(bounds.startMin)} - {formatTime(bounds.endMin)}
-      </span>
-    );
-  };
 
   return (
     <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

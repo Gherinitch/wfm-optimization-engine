@@ -21,12 +21,22 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
   pendingOverride: null,
   originalSegments: {},
   edits: [],
+  pastStates: [],
+  futureStates: [],
+  isOptimizing: false,
+  setIsOptimizing: (val) => set({ isOptimizing: val }),
+  optimizationProgress: 0,
+  setOptimizationProgress: (val) => set({ optimizationProgress: val }),
   pendingSwap: null,
+  pendingIntradayOptimization: null,
+  setPendingIntradayOptimization: (opt) => set({ pendingIntradayOptimization: opt }),
+  pendingInterdayOptimization: null,
+  setPendingInterdayOptimization: (opt) => set({ pendingInterdayOptimization: opt }),
 
   // Default WFM Rules
   rules: [
     {
-      id: "rule_5",
+      id: "rule_1",
       name: "11h Minimum Break Between Shifts",
       isActive: true,
       blueprint: "MIN_GAP",
@@ -65,9 +75,9 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
       id: "rule_5",
       name: "1.5h Work Between Break",
       isActive: true,
-      blueprint: "MIN_WORK_BEFORE",
+      blueprint: "MIN_GAP",
       targetCategory: "Break",
-      referenceCategory: "Work",
+      referenceCategory: "Break",
       valueMinutes: 90,
     },
     {
@@ -78,10 +88,38 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
       targetCategory: "Work",
       valueMinutes: 660,
     },
+    {
+      id: "rule_7",
+      name: "1.5h Work Before Lunch",
+      isActive: true,
+      blueprint: "MIN_WORK_BEFORE",
+      targetCategory: "Lunch",
+      referenceCategory: "Work",
+      valueMinutes: 90,
+    },
+    {
+      id: "rule_8",
+      name: "1.5h Gap Between Break and Lunch",
+      isActive: true,
+      blueprint: "MIN_GAP",
+      targetCategory: "Break",
+      referenceCategory: "Lunch",
+      valueMinutes: 90,
+    },
+    {
+      id: "rule_9",
+      name: "1.5h Gap Between Lunch and Break",
+      isActive: true,
+      blueprint: "MIN_GAP",
+      targetCategory: "Lunch",
+      referenceCategory: "Break",
+      valueMinutes: 90,
+    },
   ],
 
   setPendingSwap: (swap) => set({ pendingSwap: swap }),
   setPendingOverride: (override) => set({ pendingOverride: override }),
+
   setSelectedDate: (date) => {
     set({ selectedDate: date });
     get().recalculateMetrics();

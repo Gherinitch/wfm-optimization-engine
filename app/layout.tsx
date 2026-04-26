@@ -1,5 +1,6 @@
 import { Space_Grotesk, JetBrains_Mono, DM_Sans } from "next/font/google";
 import "./globals.css";
+import { GlobalKeybinds } from "@/components/GlobalKeybinds";
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
@@ -22,6 +23,7 @@ export default function RootLayout({
       className={`${spaceGrotesk.variable} ${jetbrainsMono.variable} ${dmSans.variable}`}
     >
       <body className="bg-background text-gray-200 font-body antialiased selection:bg-status-info/30">
+        <GlobalKeybinds />
         {children}
       </body>
     </html>

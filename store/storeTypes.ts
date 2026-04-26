@@ -7,7 +7,15 @@ import {
   CustomRule,
   EditRecord,
   PendingSwap,
+  IntradayMove,
+  InterdayMove,
 } from "@/types/wfm";
+
+export interface HistoryState {
+  segments: Record<string, Segment>;
+  agents: Record<string, Agent>;
+  edits: EditRecord[];
+}
 
 export interface CoreSlice {
   loadedDate: string | null;
@@ -20,6 +28,8 @@ export interface CoreSlice {
   rules: CustomRule[];
   originalSegments: Record<string, Segment>;
   edits: EditRecord[];
+  pastStates: HistoryState[];
+  futureStates: HistoryState[];
   zoomLevel: number;
   pixelsPerMinute: number;
   timelineStartMin: number;
@@ -28,6 +38,14 @@ export interface CoreSlice {
   pendingSwap: PendingSwap | null;
   setPendingSwap: (swap: PendingSwap | null) => void;
   setPendingOverride: (override: PendingOverride | null) => void;
+  isOptimizing: boolean;
+  setIsOptimizing: (val: boolean) => void;
+  optimizationProgress: number;
+  setOptimizationProgress: (val: number) => void;
+  pendingIntradayOptimization: { date: string; moves: IntradayMove[] } | null;
+  setPendingIntradayOptimization: (opt: { date: string; moves: IntradayMove[] } | null) => void;
+  pendingInterdayOptimization: { startDate: string; endDate: string; moves: InterdayMove[] } | null;
+  setPendingInterdayOptimization: (opt: { startDate: string; endDate: string; moves: InterdayMove[] } | null) => void;
   setSelectedDate: (date: string) => void;
   setHydratedData: (
     date: string,
@@ -83,6 +101,10 @@ export interface ActionSlice {
     newEndMin: number,
   ) => string[];
   moveShiftToDate: (agentId: string, oldDate: string, newDate: string) => void;
+  runIntradayOptimization: (date: string) => void;
+  confirmIntradayOptimization: (moves: IntradayMove[]) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 // Combine them into the master state!

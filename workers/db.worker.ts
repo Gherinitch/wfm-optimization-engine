@@ -1,4 +1,5 @@
 // workers/db.worker.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 

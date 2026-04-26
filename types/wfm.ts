@@ -74,3 +74,15 @@ export interface PendingSwap {
   targetAgentId: string | null; // <-- Make this nullable
   date: string;
 }
+
+export interface IntradayMove {
+  segmentId: string;
+  newStart: number;
+  newEnd: number;
+}
+
+export interface InterdayMove {
+  agentId: string;
+  oldDate: string;
+  newDate: string;
+}

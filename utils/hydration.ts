@@ -1,4 +1,5 @@
 // utils/hydration.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { dbClient } from "./dbClient";
 import { Agent, Segment, Requirement } from "@/types/wfm";
 
@@ -83,11 +84,24 @@ export async function importWfmDataToSqlite(
   );
 }
 
+// Helper to compute adjacent dates for cross-day constraint checks
+function getAdjacentDates(dateStr: string): { prev: string; next: string } {
+  const d = new Date(dateStr + 'T12:00:00Z');
+  const prev = new Date(d);
+  prev.setUTCDate(prev.getUTCDate() - 1);
+  const next = new Date(d);
+  next.setUTCDate(next.getUTCDate() + 1);
+  const fmt = (dt: Date) => dt.toISOString().split('T')[0];
+  return { prev: fmt(prev), next: fmt(next) };
+}
+
 // 🚀 NEW: The Read-Back function!
 export async function fetchDayFromSqlite(date: string) {
   console.log(`🔍 Fetching schedule for ${date} from SQLite...`);
 
-  const [rawAgents, rawSegments, rawRequirements, rawEdits] = await Promise.all(
+  const { prev, next } = getAdjacentDates(date);
+
+  const [rawAgents, rawSegments, rawRequirements, rawEdits, rawAdjacentWorkSegments] = await Promise.all(
     [
       dbClient.query(`SELECT * FROM agents;`),
       dbClient.query(
@@ -99,6 +113,14 @@ export async function fetchDayFromSqlite(date: string) {
       ),
       dbClient.query(`SELECT * FROM requirements WHERE date = ?;`, [date]),
       dbClient.query(`SELECT * FROM edits;`), // <-- Grabbing your edits!
+      // Fetch Work segments from adjacent days for cross-day 11h gap validation
+      dbClient.query(
+        `SELECT segments.*, shifts.agent_id, shifts.date 
+       FROM segments 
+       JOIN shifts ON segments.shift_id = shifts.id 
+       WHERE shifts.date IN (?, ?) AND segments.category = 'Work';`,
+        [prev, next],
+      ),
     ],
   );
 
@@ -129,6 +151,30 @@ export async function fetchDayFromSqlite(date: string) {
 
     if (agents[row.agent_id]) {
       agents[row.agent_id].segments.push(row.id);
+    }
+  });
+
+  // Add adjacent-day Work segments for cross-day constraint checking
+  // These won't render in the timeline (AgentRow filters by selectedDate)
+  // but will be accessible to the constraint engine for 11h gap validation
+  rawAdjacentWorkSegments.forEach((row: any) => {
+    const adjId = `adj_${row.id}`;
+    if (segments[adjId]) return; // skip duplicates
+    segments[adjId] = {
+      id: adjId,
+      agentId: row.agent_id,
+      name: row.name,
+      category: row.category,
+      isGeneral: false,
+      isPaid: true,
+      date: row.date,
+      startMin: row.start_min,
+      endMin: row.end_min,
+      rank: row.rank,
+    };
+
+    if (agents[row.agent_id]) {
+      agents[row.agent_id].segments.push(adjId);
     }
   });
 
@@ -450,17 +496,66 @@ export async function fetchFullWeeklyGrid(startDate: string, endDate: string, se
   const grid = agentsRes.map(agent => {
     const schedule: Record<string, { start: number, end: number }> = {};
     let hasMatchingShift = false;
+    let totalWorkMins = 0;
     
     shiftsRes
       .filter((s: any) => s.agent_id === agent.id)
       .forEach((s: any) => {
         schedule[s.date] = { start: s.start_min, end: s.end_min };
         hasMatchingShift = true;
+        totalWorkMins += (s.end_min - s.start_min);
       });
       
-    return { id: agent.id, name: agent.name, schedule, hasMatchingShift };
+    return { id: agent.id, name: agent.name, schedule, hasMatchingShift, totalWorkHours: totalWorkMins / 60 };
   });
 
   // If filtering, completely remove agents who aren't working that segment this week
   return segmentFilter ? grid.filter(a => a.hasMatchingShift) : grid;
+}
+
+export async function autoOptimizeWeek(startDate: string, endDate: string) {
+  const moves: { agentId: string; oldDate: string; newDate: string }[] = [];
+  
+  await dbClient.query('BEGIN TRANSACTION');
+  try {
+    for (let iteration = 0; iteration < 20; iteration++) {
+    const metricsResult = await fetchDateRangeMetrics(startDate, endDate);
+    if (!metricsResult || !metricsResult.days) break;
+    
+    // Sort days purely by their coverage percentage
+    const under = metricsResult.days.filter((d: any) => d.status === "UNDERSTAFFED" && d.isActionable).sort((a: any, b: any) => a.coveragePct - b.coveragePct); // lowest is worst
+    const over = metricsResult.days.filter((d: any) => d.status === "OVERSTAFFED" && d.isActionable).sort((a: any, b: any) => b.coveragePct - a.coveragePct); // highest is best
+    
+    if (under.length === 0 || over.length === 0) break; // Nothing left to optimize!
+    
+    const targetUnder = under[0];
+    const targetOver = over[0];
+    
+    // We need to move a shift from targetOver to targetUnder.
+    // Constraints: 
+    // 1. Agent must be working on targetOver.
+    // 2. Agent must NOT be working on targetUnder.
+    const agentsRes = await dbClient.query(`
+      SELECT s1.agent_id, s1.id as shift_id, s1.date as overDate, s2.date as underDate 
+      FROM shifts s1
+      LEFT JOIN shifts s2 ON s1.agent_id = s2.agent_id AND s2.date = ?
+      WHERE s1.date = ? AND s2.id IS NULL
+    `, [targetUnder.date, targetOver.date]);
+    
+    if (agentsRes.length === 0) {
+      // Very rigid schedule, can't move anyone between these two specific days
+      // A more robust algorithm would try combinations, but for now we break.
+      break;
+    }
+    
+    // Pick the first viable agent and execute the move in memory
+    const agentToMove = agentsRes[0];
+    await executeInterdayMove(agentToMove.agent_id, targetOver.date, targetUnder.date);
+    moves.push({ agentId: agentToMove.agent_id, oldDate: targetOver.date, newDate: targetUnder.date });
+  }
+  } finally {
+    await dbClient.query('ROLLBACK');
+  }
+  
+  return moves;
 }

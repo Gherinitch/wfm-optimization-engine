@@ -12,7 +12,7 @@ export const GSTHeader = () => {
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const timelineEndMin = useScheduleStore((state) => state.timelineEndMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
-  const dailyCoverage = useScheduleStore((state) => state.dailyCoverage);
+
 
   const slots = useMemo(() => {
     const s = [];

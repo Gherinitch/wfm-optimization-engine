@@ -1,15 +1,48 @@
 // store/slices/actionSlice.ts
 import { StateCreator } from "zustand";
 import { ScheduleState, ActionSlice } from "../storeTypes";
-import { calculateNetEdits, runConstraintEngine } from "@/utils/engine";
-import { dbClient, syncEditsToSqlite } from "@/utils/dbClient";
+import { calculateNetEdits, runConstraintEngine, runIntradayOptimization } from "@/utils/engine";
+import { 
+  syncEditsToSqlite,
+  syncSegmentOffsetToSqlite,
+  syncShiftSwapToSqlite,
+  syncThreeWaySwapToSqlite,
+  syncSegmentUpdateToSqlite,
+  syncShiftMoveToDateToSqlite,
+  syncSegmentsStateToSqlite
+} from "@/utils/dbClient";
 
 export const createActionSlice: StateCreator<
   ScheduleState,
   [],
   [],
   ActionSlice
-> = (set, get) => ({
+> = (setOriginal, get) => {
+  const set = (updater: (state: ScheduleState) => Partial<ScheduleState> | void) => {
+    setOriginal((state: ScheduleState) => {
+      const updates = typeof updater === "function" ? updater(state) : updater;
+      if (!updates) return state;
+      
+      // Save history block if segments or agents change
+      if (updates.segments || updates.agents) {
+        return {
+          ...updates,
+          pastStates: [
+            ...state.pastStates.slice(-14),
+            {
+              segments: state.segments,
+              agents: state.agents,
+              edits: state.edits,
+            },
+          ],
+          futureStates: [],
+        };
+      }
+      return updates;
+    });
+  };
+
+  return {
   shiftAgentDay: (agentId, date, offsetMins) => {
     set((state) => {
       const agent = state.agents[agentId];
@@ -48,12 +81,7 @@ export const createActionSlice: StateCreator<
     get().recalculateMetrics();
 
     // Optimistic Database Sync
-    dbClient
-      .query(
-        `UPDATE segments SET start_min = start_min + ?, end_min = end_min + ? WHERE shift_id = ?`,
-        [offsetMins, offsetMins, `shift_${agentId}_${date}`],
-      )
-      .catch(console.error);
+    syncSegmentOffsetToSqlite(agentId, date, offsetMins).catch(console.error);
     syncEditsToSqlite(get().edits).catch(console.error);
   },
 
@@ -121,22 +149,7 @@ export const createActionSlice: StateCreator<
     });
     get().recalculateMetrics();
 
-    dbClient
-      .batch([
-        {
-          sql: `UPDATE shifts SET agent_id = 'TEMP_SWAP' WHERE id = ?`,
-          params: [`shift_${agentAId}_${date}`],
-        },
-        {
-          sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
-          params: [agentAId, `shift_${agentBId}_${date}`],
-        },
-        {
-          sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
-          params: [agentBId, `shift_${agentAId}_${date}`],
-        },
-      ])
-      .catch(console.error);
+    syncShiftSwapToSqlite(agentAId, agentBId, date).catch(console.error);
     syncEditsToSqlite(get().edits).catch(console.error);
   },
 
@@ -213,26 +226,7 @@ export const createActionSlice: StateCreator<
     });
     get().recalculateMetrics();
 
-    dbClient
-      .batch([
-        {
-          sql: `UPDATE shifts SET agent_id = 'TEMP_SWAP_1' WHERE id = ?`,
-          params: [`shift_${agentAId}_${date}`],
-        },
-        {
-          sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
-          params: [agentAId, `shift_${agentCId}_${date}`],
-        },
-        {
-          sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
-          params: [agentCId, `shift_${agentBId}_${date}`],
-        },
-        {
-          sql: `UPDATE shifts SET agent_id = ? WHERE id = ?`,
-          params: [agentBId, `shift_${agentAId}_${date}`],
-        },
-      ])
-      .catch(console.error);
+    syncThreeWaySwapToSqlite(agentAId, agentBId, agentCId, date).catch(console.error);
     syncEditsToSqlite(get().edits).catch(console.error);
   },
 
@@ -259,13 +253,7 @@ export const createActionSlice: StateCreator<
     });
     get().recalculateMetrics();
 
-    dbClient
-      .query(`UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`, [
-        newStart,
-        newEnd,
-        id,
-      ])
-      .catch(console.error);
+    syncSegmentUpdateToSqlite(id, newStart, newEnd).catch(console.error);
     syncEditsToSqlite(get().edits).catch(console.error);
   },
 
@@ -333,16 +321,7 @@ export const createActionSlice: StateCreator<
           }
         });
 
-        dbClient
-          .query(
-            `UPDATE segments SET start_min = start_min + ?, end_min = end_min + ? WHERE shift_id = ?`,
-            [
-              offsetMins,
-              offsetMins,
-              `shift_${segment.agentId}_${segment.date}`,
-            ],
-          )
-          .catch(console.error);
+        syncSegmentOffsetToSqlite(segment.agentId, segment.date, offsetMins).catch(console.error);
       } else {
         newSegmentsObj[segmentId] = {
           ...segment,
@@ -360,12 +339,7 @@ export const createActionSlice: StateCreator<
             newEnd,
           );
         }
-        dbClient
-          .query(
-            `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
-            [newStart, newEnd, segmentId],
-          )
-          .catch(console.error);
+        syncSegmentUpdateToSqlite(segmentId, newStart, newEnd).catch(console.error);
       }
 
       return {
@@ -385,13 +359,7 @@ export const createActionSlice: StateCreator<
       const segment = state.segments[edit.segmentId];
       if (!segment) return state;
 
-      dbClient
-        .query(`UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`, [
-          edit.oldStartMin,
-          edit.oldEndMin,
-          edit.segmentId,
-        ])
-        .catch(console.error);
+      syncSegmentUpdateToSqlite(edit.segmentId, edit.oldStartMin, edit.oldEndMin).catch(console.error);
 
       return {
         segments: {
@@ -411,11 +379,7 @@ export const createActionSlice: StateCreator<
 
   clearAllEdits: () => {
     set((state) => {
-      const queries = Object.values(state.originalSegments).map((seg) => ({
-        sql: `UPDATE segments SET start_min = ?, end_min = ? WHERE id = ?`,
-        params: [seg.startMin, seg.endMin, seg.id],
-      }));
-      dbClient.batch(queries).catch(console.error);
+      syncSegmentsStateToSqlite(state.originalSegments).catch(console.error);
 
       return {
         segments: JSON.parse(JSON.stringify(state.originalSegments)),
@@ -448,7 +412,7 @@ export const createActionSlice: StateCreator<
           id: `edit_${Date.now()}_${id}_date_shift`,
           segmentId: id,
           segmentName: newSegmentsObj[id].name,
-          type: "DATE_CHANGE" as any, // We will cast this or update the types next
+          type: "DATE_CHANGE",
           oldStartMin: newSegmentsObj[id].startMin,
           newStartMin: newSegmentsObj[id].startMin,
           oldEndMin: newSegmentsObj[id].endMin, // FIXED: Removed the extra 'End'
@@ -463,13 +427,7 @@ export const createActionSlice: StateCreator<
     get().recalculateMetrics();
 
     // 🚀 Optimistic Background Sync: Update the parent shift's date!
-    dbClient
-      .query(`UPDATE shifts SET date = ? WHERE agent_id = ? AND date = ?`, [
-        newDate,
-        agentId,
-        oldDate,
-      ])
-      .catch(console.error);
+    syncShiftMoveToDateToSqlite(agentId, oldDate, newDate).catch(console.error);
 
     syncEditsToSqlite(get().edits).catch(console.error);
   },
@@ -499,4 +457,104 @@ export const createActionSlice: StateCreator<
       state.rules,
     );
   },
-});
+
+  runIntradayOptimization: async (date) => {
+    const state = get();
+    state.setIsOptimizing(true);
+    state.setOptimizationProgress(0);
+
+    // Yield back to the event loop so the UI updates
+    await new Promise(r => setTimeout(r, 10));
+
+    try {
+      const moves = await runIntradayOptimization(
+        date, 
+        state.segments, 
+        state.agents, 
+        state.requirements, 
+        state.rules, 
+        (progress) => get().setOptimizationProgress(progress)
+      );
+
+      if (moves.length === 0) {
+        alert("Schedule is optimal or constrained.");
+        return;
+      }
+      get().setPendingIntradayOptimization({ date, moves });
+    } finally {
+      get().setIsOptimizing(false);
+      get().setOptimizationProgress(0);
+    }
+  },
+
+  confirmIntradayOptimization: (moves) => {
+    setOriginal((state: ScheduleState) => {
+      const newSegments = { ...state.segments };
+      let newEdits = [...state.edits];
+      moves.forEach(m => {
+        const seg = newSegments[m.segmentId];
+        newSegments[m.segmentId] = { ...seg, startMin: m.newStart, endMin: m.newEnd };
+        newEdits = calculateNetEdits(newEdits, m.segmentId, seg.name, seg.startMin, seg.endMin, m.newStart, m.newEnd);
+        syncSegmentUpdateToSqlite(m.segmentId, m.newStart, m.newEnd).catch(console.error);
+      });
+      syncEditsToSqlite(newEdits);
+      
+      return {
+        segments: newSegments,
+        edits: newEdits,
+        pendingIntradayOptimization: null,
+        pastStates: [
+          ...state.pastStates.slice(-14),
+          { segments: state.segments, agents: state.agents, edits: state.edits }
+        ],
+        futureStates: []
+      };
+    });
+    get().recalculateMetrics();
+  },
+
+  undo: () => {
+    const state = get();
+    if (state.pastStates.length === 0) return;
+    const previous = state.pastStates[state.pastStates.length - 1];
+    const newPast = state.pastStates.slice(0, -1);
+    
+    const current = { segments: state.segments, agents: state.agents, edits: state.edits };
+    
+    syncSegmentsStateToSqlite(previous.segments).catch(console.error);
+    syncEditsToSqlite(previous.edits);
+    
+    setOriginal({
+      segments: previous.segments,
+      agents: previous.agents,
+      edits: previous.edits,
+      pastStates: newPast,
+      futureStates: [current, ...state.futureStates],
+    } as Partial<ScheduleState>);
+    
+    setTimeout(() => get().recalculateMetrics(), 10);
+  },
+
+  redo: () => {
+    const state = get();
+    if (state.futureStates.length === 0) return;
+    const next = state.futureStates[0];
+    const newFuture = state.futureStates.slice(1);
+    
+    const current = { segments: state.segments, agents: state.agents, edits: state.edits };
+
+    syncSegmentsStateToSqlite(next.segments).catch(console.error);
+    syncEditsToSqlite(next.edits);
+    
+    setOriginal({
+      segments: next.segments,
+      agents: next.agents,
+      edits: next.edits,
+      pastStates: [...state.pastStates, current],
+      futureStates: newFuture,
+    } as Partial<ScheduleState>);
+    
+    setTimeout(() => get().recalculateMetrics(), 10);
+  },
+};
+};

@@ -15,13 +15,14 @@ export const useScheduleStore = create<ScheduleState>()(
     }),
     {
       name: "wfm-schedule-storage",
-      version: 6,
+      version: 8,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       migrate: (persistedState: any, version: number) => {
-        // Fallback for older versions wiping rules
-        if (version < 6) {
+        // Force-refresh rules on any version older than 8
+        if (version < 8) {
           persistedState.rules = [
             {
-              id: "rule_5",
+              id: "rule_1",
               name: "11h Minimum Break Between Shifts",
               isActive: true,
               blueprint: "MIN_GAP",
@@ -60,9 +61,9 @@ export const useScheduleStore = create<ScheduleState>()(
               id: "rule_5",
               name: "1.5h Work Between Break",
               isActive: true,
-              blueprint: "MIN_WORK_BEFORE",
+              blueprint: "MIN_GAP",
               targetCategory: "Break",
-              referenceCategory: "Work",
+              referenceCategory: "Break",
               valueMinutes: 90,
             },
             {
@@ -72,6 +73,33 @@ export const useScheduleStore = create<ScheduleState>()(
               blueprint: "MAX_DURATION",
               targetCategory: "Work",
               valueMinutes: 660,
+            },
+            {
+              id: "rule_7",
+              name: "1.5h Work Before Lunch",
+              isActive: true,
+              blueprint: "MIN_WORK_BEFORE",
+              targetCategory: "Lunch",
+              referenceCategory: "Work",
+              valueMinutes: 90,
+            },
+            {
+              id: "rule_8",
+              name: "1.5h Gap Between Break and Lunch",
+              isActive: true,
+              blueprint: "MIN_GAP",
+              targetCategory: "Break",
+              referenceCategory: "Lunch",
+              valueMinutes: 90,
+            },
+            {
+              id: "rule_9",
+              name: "1.5h Gap Between Lunch and Break",
+              isActive: true,
+              blueprint: "MIN_GAP",
+              targetCategory: "Lunch",
+              referenceCategory: "Break",
+              valueMinutes: 90,
             },
           ];
         }

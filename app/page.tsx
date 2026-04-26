@@ -1,5 +1,6 @@
 // app/page.tsx
 "use client";
+"use no memo";
 
 import { useRef, useState, useMemo, useEffect } from "react";
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -12,6 +13,7 @@ import { ValidationModal } from "@/components/Timeline/ValidationModal";
 import { TimelineToolbar } from "@/components/Timeline/TimelineToolbar";
 import { AgentContextModal } from "@/components/Timeline/AgentContextModal";
 import { SwapModal } from "@/components/Timeline/SwapModal";
+import { IntradayOptimizerModal } from "@/components/Timeline/IntradayOptimizerModal";
 
 // Our clean new hooks!
 import { useScheduleLoader } from "@/hooks/useScheduleLoader";
@@ -59,6 +61,7 @@ export default function OptimizationTool() {
 
   // The Virtualizer Setup!
   const parentRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line react-hooks/incompatible-library
   const rowVirtualizer = useVirtualizer({
     count: filteredAgentIds.length,
     getScrollElement: () => parentRef.current,
@@ -82,6 +85,7 @@ export default function OptimizationTool() {
       <ValidationModal />
       <AgentContextModal />
       <SwapModal />
+      <IntradayOptimizerModal />
 
       <TimelineToolbar
         currentDate={currentDate}

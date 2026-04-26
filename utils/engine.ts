@@ -1,6 +1,6 @@
 // utils/engine.ts
 
-import { EditRecord, Segment, Agent, CustomRule } from "@/types/wfm";
+import { EditRecord, Segment, Agent, CustomRule, Requirement } from "@/types/wfm";
 
 const dateCache = new Map<string, number>();
 
@@ -40,7 +40,7 @@ export function calculateNetEdits(
   const existingEditIndex = edits.findIndex(
     (e) => e.segmentId === segmentId && e.type === "TIME_CHANGE",
   );
-  let newEdits = [...edits];
+  const newEdits = [...edits];
 
   if (existingEditIndex >= 0) {
     const existingEdit = newEdits[existingEditIndex];
@@ -90,6 +90,7 @@ export function runConstraintEngine(
 
   const violations: string[] = [];
   const agent = agents[segment.agentId];
+  if (!agent) return [];
   const agentSegments = agent.segments
     .map((id) => segments[id])
     .filter(Boolean);
@@ -128,6 +129,61 @@ export function runConstraintEngine(
       }
     }
   });
+
+  // --- Default Ordering Rules ---
+  const isFirstBreak = (name: string) => {
+    const n = name.toLowerCase();
+    return n.includes("break") && (n.includes("1st") || n.includes("first"));
+  };
+  const isSecondBreak = (name: string) => {
+    const n = name.toLowerCase();
+    return n.includes("break") && (n.includes("2nd") || n.includes("second"));
+  };
+  const isLunchStr = (name: string) => name.toLowerCase().includes("lunch");
+
+  const firstBreaks = agentSegments.filter(s => s.id !== segment.id && isFirstBreak(s.name) && s.date === segment.date);
+  const secondBreaks = agentSegments.filter(s => s.id !== segment.id && isSecondBreak(s.name) && s.date === segment.date);
+  const lunches = agentSegments.filter(s => s.id !== segment.id && isLunchStr(s.name) && s.date === segment.date);
+
+  if (isFirstBreak(segment.name)) {
+    secondBreaks.forEach(sb => {
+      if (proposedAbsEnd > getAbsoluteMinutes(sb.date, sb.startMin)) {
+        violations.push("1st Break must be scheduled before 2nd Break.");
+      }
+    });
+    lunches.forEach(lu => {
+      if (proposedAbsEnd > getAbsoluteMinutes(lu.date, lu.startMin)) {
+        violations.push("1st Break must be scheduled before Lunch.");
+      }
+    });
+  }
+
+  if (isSecondBreak(segment.name)) {
+    firstBreaks.forEach(fb => {
+      if (proposedAbsStart < getAbsoluteMinutes(fb.date, fb.endMin)) {
+        violations.push("2nd Break must be scheduled after 1st Break.");
+      }
+    });
+    lunches.forEach(lu => {
+      if (proposedAbsStart < getAbsoluteMinutes(lu.date, lu.endMin)) {
+        violations.push("2nd Break must be scheduled after Lunch.");
+      }
+    });
+  }
+
+  if (isLunchStr(segment.name)) {
+    firstBreaks.forEach(fb => {
+      if (proposedAbsStart < getAbsoluteMinutes(fb.date, fb.endMin)) {
+        violations.push("Lunch must be scheduled after 1st Break.");
+      }
+    });
+    secondBreaks.forEach(sb => {
+      if (proposedAbsEnd > getAbsoluteMinutes(sb.date, sb.startMin)) {
+        violations.push("Lunch must be scheduled before 2nd Break.");
+      }
+    });
+  }
+  // ------------------------------
 
   const activeRules = rules.filter((r) => r.isActive);
   activeRules.forEach((rule) => {
@@ -210,4 +266,105 @@ export function runConstraintEngine(
   });
 
   return violations;
+}
+
+export async function runIntradayOptimization(
+  date: string,
+  segments: Record<string, Segment>,
+  agents: Record<string, Agent>,
+  requirements: Record<string, Requirement>,
+  rules: CustomRule[],
+  onProgress?: (progress: number) => void
+): Promise<{ segmentId: string; newStart: number; newEnd: number }[]> {
+  const simSegments = { ...segments };
+
+  const getVariance = () => {
+    let penalty = 0;
+    for (let slot = 480; slot < 1200; slot += 15) {
+      const reqId = `req_${date}_${slot}`;
+      const required = requirements[reqId]?.req || 0;
+      
+      let scheduled = 0;
+      Object.values(simSegments).forEach((seg) => {
+        if (seg.date !== date || seg.isGeneral) return;
+        if (seg.category === "Work" && seg.startMin <= slot && seg.endMin > slot) {
+          const hasBreak = Object.values(simSegments).some(b => 
+            b.agentId === seg.agentId && b.date === date && b.category !== "Work" && b.category !== "Absence" &&
+            b.startMin <= slot && b.endMin > slot
+          );
+          if (!hasBreak) scheduled++;
+        }
+      });
+      const net = scheduled - required;
+      if (required > 0) {
+        const coverage = scheduled / required;
+        if (coverage < 0.70) {
+          const deficit = 0.70 - coverage;
+          // Apply a massive weight for being under the 70% target SLA threshold
+          penalty += 1000000 + (deficit * 100000) + (net * net);
+        } else {
+          penalty += (net * net);
+        }
+      } else {
+        penalty += (net * net);
+      }
+    }
+    return penalty;
+  };
+
+  const breakIdsToMove = Object.values(simSegments)
+    .filter(seg => seg.date === date && !seg.isGeneral && seg.category !== "Work" && seg.category !== "Absence")
+    .map(seg => seg.id);
+
+  for (let iteration = 0; iteration < 20; iteration++) {
+    if (onProgress) onProgress(((iteration + 1) / 20) * 100);
+    // Yield to the event loop so the browser doesn't freeze
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    let bestMove: { segmentId: string; newStart: number; newEnd: number; varianceDelta: number } | null = null;
+    const currentVariance = getVariance();
+    
+    for (const segId of breakIdsToMove) {
+      const seg = simSegments[segId];
+      const parentShift = Object.values(simSegments).find(s => s.agentId === seg.agentId && s.date === date && s.category === "Work");
+      if (!parentShift) continue;
+
+      const duration = seg.endMin - seg.startMin;
+      
+      for(let start = parentShift.startMin; start <= parentShift.endMin - duration; start += 15) {
+        if (start === seg.startMin) continue;
+        
+        const violations = runConstraintEngine(seg.id, start, start + duration, simSegments, agents, rules);
+        if (violations.length > 0) continue;
+
+        const originalStart = simSegments[seg.id].startMin;
+        const originalEnd = simSegments[seg.id].endMin;
+        simSegments[seg.id] = { ...simSegments[seg.id], startMin: start, endMin: start + duration } as Segment;
+        
+        const newVariance = getVariance();
+        simSegments[seg.id] = { ...simSegments[seg.id], startMin: originalStart, endMin: originalEnd } as Segment;
+        
+        const varianceDelta = currentVariance - newVariance;
+        if (varianceDelta > 0 && (!bestMove || varianceDelta > bestMove.varianceDelta)) {
+          bestMove = { segmentId: seg.id, newStart: start, newEnd: start + duration, varianceDelta };
+        }
+      }
+    }
+
+    if (!bestMove) break;
+    
+    const segToUpdate = simSegments[bestMove.segmentId];
+    simSegments[bestMove.segmentId] = { ...segToUpdate, startMin: bestMove.newStart, endMin: bestMove.newEnd } as Segment;
+  }
+
+  const finalMoves = [];
+  for (const segId of breakIdsToMove) {
+    const original = segments[segId];
+    const simulated = simSegments[segId];
+    if (original.startMin !== simulated.startMin || original.endMin !== simulated.endMin) {
+      finalMoves.push({ segmentId: segId, newStart: simulated.startMin, newEnd: simulated.endMin });
+    }
+  }
+
+  return finalMoves;
 }
