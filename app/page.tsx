@@ -3,7 +3,7 @@
 "use no memo";
 
 import { useRef, useState, useMemo, useEffect } from "react";
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useScheduleStore } from "@/store/useScheduleStore";
 
 import { CoverageHeader } from "@/components/Timeline/CoverageHeader";
@@ -14,6 +14,7 @@ import { TimelineToolbar } from "@/components/Timeline/TimelineToolbar";
 import { AgentContextModal } from "@/components/Timeline/AgentContextModal";
 import { SwapModal } from "@/components/Timeline/SwapModal";
 import { IntradayOptimizerModal } from "@/components/Timeline/IntradayOptimizerModal";
+import { Z_INDEX } from "@/constants/ui";
 
 // Our clean new hooks!
 import { useScheduleLoader } from "@/hooks/useScheduleLoader";
@@ -28,11 +29,11 @@ export default function OptimizationTool() {
     availableDates,
     handleForceSync,
   } = useScheduleLoader();
-  
+
   const { sortBy, setSortBy, sortedAgentIds } = useAgentSort(currentDate);
 
-  const agents = useScheduleStore(state => state.agents);
-  const segments = useScheduleStore(state => state.segments);
+  const agents = useScheduleStore((state) => state.agents);
+  const segments = useScheduleStore((state) => state.segments);
 
   // Filter State
   const [availableSegments, setAvailableSegments] = useState<string[]>([]);
@@ -48,11 +49,13 @@ export default function OptimizationTool() {
   const filteredAgentIds = useMemo(() => {
     let list = sortedAgentIds;
     if (segmentFilter) {
-      list = list.filter(agentId => {
+      list = list.filter((agentId) => {
         const agent = agents[agentId];
         // Check if the agent has this specific segment on the currently viewed date
-        return agent?.segments.some(segId => 
-          segments[segId]?.name === segmentFilter && segments[segId]?.date === currentDate
+        return agent?.segments.some(
+          (segId) =>
+            segments[segId]?.name === segmentFilter &&
+            segments[segId]?.date === currentDate,
         );
       });
     }
@@ -98,18 +101,22 @@ export default function OptimizationTool() {
 
       {/* The Segment Filter Bar */}
       <div className="px-6 py-2 bg-surface/80 border-b border-surfaceBorder flex items-center gap-3 z-40">
-        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Filter by Work Segment:</span>
-        <select 
+        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+          Filter by Work Segment:
+        </span>
+        <select
           className="bg-background border border-surfaceBorder text-xs text-white rounded px-2 py-1 focus:outline-none focus:border-status-info cursor-pointer transition-colors hover:border-surfaceBorder/80"
           value={segmentFilter}
           onChange={(e) => setSegmentFilter(e.target.value)}
         >
           <option value="">All Segments</option>
-          {availableSegments.map(seg => (
-            <option key={seg} value={seg}>{seg}</option>
+          {availableSegments.map((seg) => (
+            <option key={seg} value={seg}>
+              {seg}
+            </option>
           ))}
         </select>
-        
+
         {segmentFilter && (
           <span className="text-xs font-mono text-status-info ml-2">
             Showing {filteredAgentIds.length} Agents
@@ -118,28 +125,39 @@ export default function OptimizationTool() {
       </div>
 
       {/* The Virtualized Scroll Container */}
-      <div ref={parentRef} className="flex-grow overflow-auto flex flex-col relative custom-scrollbar bg-surface/50 will-change-scroll">
+      <div
+        ref={parentRef}
+        className="flex-grow overflow-auto flex flex-col relative custom-scrollbar bg-surface/50 will-change-scroll"
+      >
         <div className="min-w-max pb-20">
-          
           {/* Headers remain sticky at the top */}
-          <div className="sticky top-0 z-[100001] shadow-md flex flex-col bg-background">
+          <div
+            className="sticky top-0 shadow-md flex flex-col bg-background"
+            style={{ zIndex: Z_INDEX.PANEL_OVERLAY }}
+          >
             <CoverageHeader />
             <GSTHeader />
           </div>
 
           {/* The Virtualized Body! */}
-          <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }} className="z-0">
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+            }}
+            className="z-0"
+          >
             {rowVirtualizer.getVirtualItems().map((virtualRow) => {
               const agentId = filteredAgentIds[virtualRow.index];
               return (
-                <div 
+                <div
                   key={agentId}
-                  style={{ 
-                    position: 'absolute', 
-                    top: 0, 
-                    left: 0, 
-                    width: '100%', 
-                    transform: `translateY(${virtualRow.start}px)` 
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
                   <AgentRow agentId={agentId} />
@@ -147,7 +165,6 @@ export default function OptimizationTool() {
               );
             })}
           </div>
-          
         </div>
       </div>
     </main>

@@ -4,10 +4,11 @@ import React from "react";
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { generateDeltaExport } from "@/utils/export";
 import Link from "next/link";
+import { MINS_PER_HOUR, MINS_PER_INTERVAL } from "@/constants/wfm";
 
 const HOURS = Array.from({ length: 25 }, (_, i) => ({
   label: `${i.toString().padStart(2, "0")}:00`,
-  value: i * 60,
+  value: i * MINS_PER_HOUR,
 }));
 
 type SortOption = "name" | "startTime";
@@ -39,9 +40,13 @@ export const TimelineToolbar = ({
   const edits = useScheduleStore((state) => state.edits);
   const segments = useScheduleStore((state) => state.segments);
   const originalSegments = useScheduleStore((state) => state.originalSegments);
-  const runIntradayOptimization = useScheduleStore((state) => state.runIntradayOptimization);
+  const runIntradayOptimization = useScheduleStore(
+    (state) => state.runIntradayOptimization,
+  );
   const isOptimizing = useScheduleStore((state) => state.isOptimizing);
-  const optimizationProgress = useScheduleStore((state) => state.optimizationProgress);
+  const optimizationProgress = useScheduleStore(
+    (state) => state.optimizationProgress,
+  );
 
   const handleAutoGST = () => {
     runIntradayOptimization(currentDate);
@@ -53,7 +58,7 @@ export const TimelineToolbar = ({
       alert("No changes to export!");
       return;
     }
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -162,9 +167,9 @@ export const TimelineToolbar = ({
             onChange={(e) => setZoomLevel(Number(e.target.value))}
             className="bg-background border border-surfaceBorder rounded px-2 py-1 focus:outline-none focus:border-status-info cursor-pointer"
           >
-            <option value={15}>15 Min</option>
+            <option value={MINS_PER_INTERVAL}>15 Min</option>
             <option value={30}>30 Min</option>
-            <option value={60}>1 Hour</option>
+            <option value={MINS_PER_HOUR}>1 Hour</option>
           </select>
         </div>
 
@@ -189,12 +194,16 @@ export const TimelineToolbar = ({
             className="relative overflow-hidden px-3 py-1.5 font-mono text-[11px] uppercase tracking-widest font-bold bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded hover:bg-amber-500 hover:text-black transition-colors disabled:opacity-100 disabled:cursor-not-allowed"
           >
             {isOptimizing && (
-              <div 
-                className="absolute inset-0 bg-amber-500/40 transition-all duration-200 pointer-events-none" 
+              <div
+                className="absolute inset-0 bg-amber-500/40 transition-all duration-200 pointer-events-none"
                 style={{ width: `${optimizationProgress}%` }}
               ></div>
             )}
-            <span className="relative z-10">{isOptimizing ? `Optimizing... ${Math.round(optimizationProgress)}%` : "Auto GST"}</span>
+            <span className="relative z-10">
+              {isOptimizing
+                ? `Optimizing... ${Math.round(optimizationProgress)}%`
+                : "Auto GST"}
+            </span>
           </button>
           <button
             onClick={handleExport}

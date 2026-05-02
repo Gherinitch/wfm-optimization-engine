@@ -5,6 +5,7 @@ import { ScheduleState } from "./storeTypes";
 import { createCoreSlice } from "./slices/coreSlice";
 import { createMetricsSlice } from "./slices/metricsSlice";
 import { createActionSlice } from "./slices/actionSlice";
+import { MIN_WORK_GAP_MINUTES } from "@/constants/wfm";
 
 export const useScheduleStore = create<ScheduleState>()(
   persist(
@@ -16,11 +17,10 @@ export const useScheduleStore = create<ScheduleState>()(
     {
       name: "wfm-schedule-storage",
       version: 8,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      migrate: (persistedState: any, version: number) => {
+      migrate: (persistedState, version: number) => {
         // Force-refresh rules on any version older than 8
-        if (version < 8) {
-          persistedState.rules = [
+        if (persistedState && version < 8) {
+          const rules = [
             {
               id: "rule_1",
               name: "11h Minimum Break Between Shifts",
@@ -28,7 +28,7 @@ export const useScheduleStore = create<ScheduleState>()(
               blueprint: "MIN_GAP",
               targetCategory: "Work",
               referenceCategory: "Work",
-              valueMinutes: 660,
+              valueMinutes: MIN_WORK_GAP_MINUTES,
             },
             {
               id: "rule_2",
@@ -72,7 +72,7 @@ export const useScheduleStore = create<ScheduleState>()(
               isActive: true,
               blueprint: "MAX_DURATION",
               targetCategory: "Work",
-              valueMinutes: 660,
+              valueMinutes: MIN_WORK_GAP_MINUTES,
             },
             {
               id: "rule_7",
@@ -102,6 +102,7 @@ export const useScheduleStore = create<ScheduleState>()(
               valueMinutes: 90,
             },
           ];
+          return { ...persistedState, rules };
         }
         return persistedState;
       },

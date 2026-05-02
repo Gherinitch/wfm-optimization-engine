@@ -4,13 +4,9 @@
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { motion, AnimatePresence } from "framer-motion";
 import { Segment } from "@/types/wfm";
-
-const formatTime = (mins: number) => {
-  const normalized = mins % 1440;
-  const h = Math.floor(normalized / 60);
-  const m = normalized % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-};
+import { formatTime } from "@/utils/time";
+import { Z_INDEX } from "@/constants/ui";
+import { MINS_PER_HOUR } from "@/constants/wfm";
 
 const calculatePaidMinutes = (daySegments: Segment[]) => {
   if (!daySegments || daySegments.length === 0) return 0;
@@ -62,11 +58,14 @@ export const AgentContextModal = () => {
   allUniqueDates.forEach((date) => {
     totalWeeklyMins += calculatePaidMinutes(groupedByDate[date] || []);
   });
-  const totalWeeklyHours = (totalWeeklyMins / 60).toFixed(1);
+  const totalWeeklyHours = (totalWeeklyMins / MINS_PER_HOUR).toFixed(1);
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+      <div
+        className={`fixed inset-0 flex items-center justify-center p-4`}
+        style={{ zIndex: Z_INDEX.MODAL_BACKDROP }}
+      >
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -131,7 +130,7 @@ export const AgentContextModal = () => {
               // Now we pull from the Master List. If the agent isn't scheduled at all, daySegments = []
               const daySegments = groupedByDate[date] || [];
               const dayPaidMins = calculatePaidMinutes(daySegments);
-              const dayPaidHours = (dayPaidMins / 60).toFixed(1);
+              const dayPaidHours = (dayPaidMins / MINS_PER_HOUR).toFixed(1);
               const absences = daySegments.filter(
                 (s) => s.category === "Absence",
               );

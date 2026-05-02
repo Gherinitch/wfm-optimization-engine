@@ -4,6 +4,7 @@ import { useScheduleStore } from "@/store/useScheduleStore";
 import { parseScheduleData, fetchAvailableDates } from "@/utils/parser";
 import { importWfmDataToSqlite, fetchDayFromSqlite } from "@/utils/hydration";
 import { dbClient } from "@/utils/dbClient";
+import { logger } from "@/utils/logger";
 
 export function useScheduleLoader() {
   const loadedDate = useScheduleStore((state) => state.loadedDate);
@@ -41,7 +42,7 @@ export function useScheduleLoader() {
       const dbData = await fetchDayFromSqlite(currentDate);
 
       if (Object.keys(dbData.agents).length === 0) {
-        console.warn("⚠️ SQLite is empty. Initializing from CSV...");
+        logger.warn("SQLite is empty. Initializing from CSV...");
         const csvData = await parseScheduleData(currentDate);
 
         await importWfmDataToSqlite(
@@ -59,7 +60,7 @@ export function useScheduleLoader() {
             [],
           );
       } else {
-        console.log("✅ Successfully loaded day from SQLite!");
+        logger.info("Successfully loaded day from SQLite!");
         useScheduleStore
           .getState()
           .setHydratedData(

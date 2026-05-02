@@ -7,6 +7,8 @@ import {
   fetchAgentsForReassignment,
   executeInterdayMove,
 } from "@/utils/hydration";
+import { Z_INDEX } from "@/constants/ui";
+import { formatTime } from "@/utils/time";
 
 interface Props {
   sourceDate: string | null;
@@ -14,14 +16,6 @@ interface Props {
   onClose: () => void;
   onSuccess: () => void;
 }
-
-const formatTime = (mins: number) => {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  const ampm = h >= 12 ? "PM" : "AM";
-  const h12 = h % 12 || 12;
-  return `${h12}:${m.toString().padStart(2, "0")}${ampm}`;
-};
 
 export function ShiftMoverPanel({
   sourceDate,
@@ -67,12 +61,16 @@ export function ShiftMoverPanel({
     <>
       {/* Backdrop overlay */}
       <div
-        className="fixed inset-0 z-[100000] bg-background/50 backdrop-blur-sm"
+        className={`fixed inset-0 bg-background/50 backdrop-blur-sm`}
+        style={{ zIndex: Z_INDEX.PANEL_BACKDROP }}
         onClick={onClose}
       />
 
       {/* Slide-out Panel */}
-      <div className="fixed right-0 top-0 h-full w-[500px] z-[100001] bg-surface border-l border-surfaceBorder shadow-2xl flex flex-col transform transition-transform duration-300">
+      <div
+        className={`fixed right-0 top-0 h-full w-[500px] bg-surface border-l border-surfaceBorder shadow-2xl flex flex-col transform transition-transform duration-300`}
+        style={{ zIndex: Z_INDEX.PANEL_OVERLAY }}
+      >
         {/* Header */}
         <div className="px-6 py-5 border-b border-surfaceBorder flex justify-between items-start bg-surface-light">
           <div>

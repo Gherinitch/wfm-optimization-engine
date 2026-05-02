@@ -4,6 +4,7 @@
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { formatTime, formatMetric } from "@/utils/time";
 import { useMemo } from "react";
+import { Z_INDEX } from "@/constants/ui";
 
 export const CoverageHeader = () => {
   const zoomLevel = useScheduleStore((state) => state.zoomLevel);
@@ -13,7 +14,6 @@ export const CoverageHeader = () => {
   const timelineStartMin = useScheduleStore((state) => state.timelineStartMin);
   const timelineEndMin = useScheduleStore((state) => state.timelineEndMin);
   const ppm = useScheduleStore((state) => state.pixelsPerMinute);
-
 
   const slots = useMemo(() => {
     const s = [];
@@ -27,8 +27,10 @@ export const CoverageHeader = () => {
 
   return (
     <div className="flex w-full border-b border-surfaceBorder bg-background">
-      {/* FIXED: Z-Index set to [100000] */}
-      <div className="w-64 flex-shrink-0 sticky left-0 z-[100000] bg-surface border-r border-surfaceBorder p-4 flex flex-col justify-end">
+      <div
+        className="w-64 flex-shrink-0 sticky left-0 bg-surface border-r border-surfaceBorder p-4 flex flex-col justify-end"
+        style={{ zIndex: Z_INDEX.TIMELINE_STICKY_LEFT }}
+      >
         <span className="font-heading text-xs text-gray-400 uppercase tracking-widest font-semibold">
           Net Coverage
         </span>
@@ -74,7 +76,10 @@ export const CoverageHeader = () => {
                 </span>
               </div>
 
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex flex-col bg-surface border border-surfaceBorder rounded-md p-3 text-xs z-[100] shadow-2xl w-40 pointer-events-none">
+              <div
+                className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex flex-col bg-surface border border-surfaceBorder rounded-md p-3 text-xs shadow-2xl w-40 pointer-events-none"
+                style={{ zIndex: Z_INDEX.TOOLTIP }}
+              >
                 <div className="flex justify-between py-0.5">
                   <span className="text-gray-400">Required</span>
                   <span className="font-mono">{safeRequired}</span>

@@ -1,6 +1,15 @@
 // store/slices/coreSlice.ts
 import { StateCreator } from "zustand";
 import { ScheduleState, CoreSlice } from "../storeTypes";
+import {
+  DEFAULT_ZOOM_LEVEL,
+  TIMELINE_START_MINUTES,
+  TIMELINE_END_MINUTES,
+  DEFAULT_RULES,
+  MINS_PER_INTERVAL,
+  MINS_PER_HOUR,
+  MINS_PER_DAY,
+} from "@/constants/wfm";
 
 export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
   set,
@@ -14,10 +23,10 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
   agents: {},
   segments: {},
   requirements: {},
-  zoomLevel: 15,
+  zoomLevel: DEFAULT_ZOOM_LEVEL,
   pixelsPerMinute: 4,
-  timelineStartMin: 360,
-  timelineEndMin: 1380,
+  timelineStartMin: TIMELINE_START_MINUTES,
+  timelineEndMin: TIMELINE_END_MINUTES,
   pendingOverride: null,
   originalSegments: {},
   edits: [],
@@ -29,93 +38,14 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
   setOptimizationProgress: (val) => set({ optimizationProgress: val }),
   pendingSwap: null,
   pendingIntradayOptimization: null,
-  setPendingIntradayOptimization: (opt) => set({ pendingIntradayOptimization: opt }),
+  setPendingIntradayOptimization: (opt) =>
+    set({ pendingIntradayOptimization: opt }),
   pendingInterdayOptimization: null,
-  setPendingInterdayOptimization: (opt) => set({ pendingInterdayOptimization: opt }),
+  setPendingInterdayOptimization: (opt) =>
+    set({ pendingInterdayOptimization: opt }),
 
   // Default WFM Rules
-  rules: [
-    {
-      id: "rule_1",
-      name: "11h Minimum Break Between Shifts",
-      isActive: true,
-      blueprint: "MIN_GAP",
-      targetCategory: "Work",
-      referenceCategory: "Work",
-      valueMinutes: 660,
-    },
-    {
-      id: "rule_2",
-      name: "Breaks Must Be Inside Work",
-      isActive: true,
-      blueprint: "CONTAINMENT",
-      targetCategory: "Break",
-      referenceCategory: "Work",
-      valueMinutes: 0,
-    },
-    {
-      id: "rule_3",
-      name: "Lunches Must Be Inside Work",
-      isActive: true,
-      blueprint: "CONTAINMENT",
-      targetCategory: "Lunch",
-      referenceCategory: "Work",
-      valueMinutes: 0,
-    },
-    {
-      id: "rule_4",
-      name: "1.5h Work Before Break",
-      isActive: true,
-      blueprint: "MIN_WORK_BEFORE",
-      targetCategory: "Break",
-      referenceCategory: "Work",
-      valueMinutes: 90,
-    },
-    {
-      id: "rule_5",
-      name: "1.5h Work Between Break",
-      isActive: true,
-      blueprint: "MIN_GAP",
-      targetCategory: "Break",
-      referenceCategory: "Break",
-      valueMinutes: 90,
-    },
-    {
-      id: "rule_6",
-      name: "Maximum Shift Duration",
-      isActive: true,
-      blueprint: "MAX_DURATION",
-      targetCategory: "Work",
-      valueMinutes: 660,
-    },
-    {
-      id: "rule_7",
-      name: "1.5h Work Before Lunch",
-      isActive: true,
-      blueprint: "MIN_WORK_BEFORE",
-      targetCategory: "Lunch",
-      referenceCategory: "Work",
-      valueMinutes: 90,
-    },
-    {
-      id: "rule_8",
-      name: "1.5h Gap Between Break and Lunch",
-      isActive: true,
-      blueprint: "MIN_GAP",
-      targetCategory: "Break",
-      referenceCategory: "Lunch",
-      valueMinutes: 90,
-    },
-    {
-      id: "rule_9",
-      name: "1.5h Gap Between Lunch and Break",
-      isActive: true,
-      blueprint: "MIN_GAP",
-      targetCategory: "Lunch",
-      referenceCategory: "Break",
-      valueMinutes: 90,
-    },
-  ],
+  rules: DEFAULT_RULES,
 
   setPendingSwap: (swap) => set({ pendingSwap: swap }),
   setPendingOverride: (override) => set({ pendingOverride: override }),
@@ -154,9 +84,9 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
 
   setZoomLevel: (zoomLevel) => {
     let ppm = 2;
-    if (zoomLevel === 15) ppm = 4;
+    if (zoomLevel === MINS_PER_INTERVAL) ppm = 4;
     else if (zoomLevel === 30) ppm = 3;
-    else if (zoomLevel === 60) ppm = 2;
+    else if (zoomLevel === MINS_PER_HOUR) ppm = 2;
     set({ zoomLevel, pixelsPerMinute: ppm });
   },
 
@@ -171,7 +101,7 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
       if (todaysSegments.length === 0)
         return { timelineStartMin: 480, timelineEndMin: 1080 };
 
-      let min = 1440,
+      let min = MINS_PER_DAY,
         max = 0;
       todaysSegments.forEach((seg) => {
         if (seg.startMin < min) min = seg.startMin;
@@ -179,8 +109,14 @@ export const createCoreSlice: StateCreator<ScheduleState, [], [], CoreSlice> = (
       });
 
       return {
-        timelineStartMin: Math.max(0, Math.floor(min / 60) * 60 - 60),
-        timelineEndMin: Math.min(1440, Math.ceil(max / 60) * 60 + 60),
+        timelineStartMin: Math.max(
+          0,
+          Math.floor(min / MINS_PER_HOUR) * MINS_PER_HOUR - MINS_PER_HOUR,
+        ),
+        timelineEndMin: Math.min(
+          MINS_PER_DAY,
+          Math.ceil(max / MINS_PER_HOUR) * MINS_PER_HOUR + MINS_PER_HOUR,
+        ),
       };
     }),
 });

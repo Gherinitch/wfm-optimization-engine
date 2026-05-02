@@ -2,6 +2,8 @@
 
 import Papa from "papaparse";
 import { Agent, Segment, SegmentCategory, Requirement } from "@/types/wfm";
+import { MINS_PER_HOUR, MINS_PER_DAY } from "@/constants/wfm";
+import { logger } from "@/utils/logger";
 
 const generateId = () => Math.random().toString(36).substring(2, 11);
 
@@ -56,7 +58,7 @@ const timeToMins = (timeStr: string): number => {
   if (cleanStr.includes("PM") && hours < 12) hours += 12;
   if (cleanStr.includes("AM") && hours === 12) hours = 0;
 
-  return hours * 60 + minutes;
+  return hours * MINS_PER_HOUR + minutes;
 };
 
 const fetchRawCSV = async (): Promise<string> => {
@@ -65,7 +67,7 @@ const fetchRawCSV = async (): Promise<string> => {
     if (!res.ok) throw new Error("File not found");
     return await res.text();
   } catch (e) {
-    console.error("Failed to load /Schedule.csv", e);
+    logger.error("Failed to load /Schedule.csv", e);
     return "";
   }
 };
@@ -76,7 +78,7 @@ const fetchRequirementsCSV = async (): Promise<string> => {
     if (!res.ok) return "";
     return await res.text();
   } catch (e) {
-    console.error("Failed to load /Requirements.csv", e);
+    logger.error("Failed to load /Requirements.csv", e);
     return "";
   }
 };
@@ -94,7 +96,8 @@ export const fetchAvailableDates = async (): Promise<string[]> => {
   return Array.from(dates).sort();
 };
 
-export const parseScheduleData = async () => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const parseScheduleData = async (currentDate: string) => {
   const csvText = await fetchRawCSV();
   const { data: lines } = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
@@ -125,7 +128,7 @@ export const parseScheduleData = async () => {
 
     const startMin = timeToMins(startStr);
     let endMin = timeToMins(endStr);
-    if (endMin < startMin) endMin += 1440;
+    if (endMin < startMin) endMin += MINS_PER_DAY;
 
     const { category, isGeneral, isPaid } = getCategoryAndType(
       segmentName,

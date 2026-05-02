@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { CustomRule, SegmentCategory, RuleBlueprint } from "@/types/wfm";
 import Link from "next/link";
+import { MINS_PER_HOUR } from "@/constants/wfm";
 
 const CATEGORIES: SegmentCategory[] = [
   "Work",
@@ -50,8 +51,8 @@ export default function ConstraintsPage() {
     setTarget(rule.targetCategory);
     if (rule.referenceCategory) setReference(rule.referenceCategory);
 
-    setHours(Math.floor(rule.valueMinutes / 60));
-    setMinutes(rule.valueMinutes % 60);
+    setHours(Math.floor(rule.valueMinutes / MINS_PER_HOUR));
+    setMinutes(rule.valueMinutes % MINS_PER_HOUR);
 
     setIsBuilding(true);
   };
@@ -67,7 +68,7 @@ export default function ConstraintsPage() {
 
   const handleSaveRule = () => {
     if (!ruleName.trim()) return;
-    const totalMinutes = hours * 60 + minutes;
+    const totalMinutes = hours * MINS_PER_HOUR + minutes;
 
     if (editingRuleId) {
       updateRule(editingRuleId, {
@@ -253,8 +254,8 @@ export default function ConstraintsPage() {
 
         <div className="flex flex-col gap-3">
           {rules.map((rule) => {
-            const displayHours = Math.floor(rule.valueMinutes / 60);
-            const displayMins = rule.valueMinutes % 60;
+            const displayHours = Math.floor(rule.valueMinutes / MINS_PER_HOUR);
+            const displayMins = rule.valueMinutes % MINS_PER_HOUR;
             const timeString =
               `${displayHours > 0 ? `${displayHours}h ` : ""}${displayMins > 0 ? `${displayMins}m` : ""}`.trim() ||
               "0m";

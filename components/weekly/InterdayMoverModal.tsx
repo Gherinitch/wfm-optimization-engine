@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from "react";
 import { useScheduleStore } from "@/store/useScheduleStore";
+import { Z_INDEX } from "@/constants/ui";
 
 interface Props {
   sourceDate: string | null;
@@ -44,7 +45,10 @@ export function InterdayMoverModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[200000] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+    <div
+      className={`fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4`}
+      style={{ zIndex: Z_INDEX.WEEKLY_MODAL }}
+    >
       <div className="bg-surface border border-surfaceBorder w-full max-w-md rounded-xl shadow-2xl flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-surfaceBorder flex justify-between items-center bg-surface-light">
           <div>

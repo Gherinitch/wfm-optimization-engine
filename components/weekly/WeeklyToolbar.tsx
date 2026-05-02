@@ -2,6 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import Link from "next/link";
+import { Z_INDEX } from "@/constants/ui";
 
 export type Density = "compact" | "normal" | "large";
 
@@ -36,31 +37,53 @@ export const WeeklyToolbar: React.FC<WeeklyToolbarProps> = ({
   density,
   setDensity,
   isMoving,
-  handleAutoOptimize
+  handleAutoOptimize,
 }) => {
   return (
-    <div className="flex justify-between items-center px-8 py-3 border-b border-surfaceBorder bg-surface z-[100]">
+    <div
+      className={`flex justify-between items-center px-8 py-3 border-b border-surfaceBorder bg-surface`}
+      style={{ zIndex: Z_INDEX.TABLE_STICKY_HEADER }}
+    >
       <div>
-        <h1 className="text-xl font-medium text-gray-200">Master Schedule Roster</h1>
+        <h1 className="text-xl font-medium text-gray-200">
+          Master Schedule Roster
+        </h1>
         <div className="flex gap-4 text-xs text-gray-400 mt-1 tabular-nums">
-          <span>Target: <strong className="text-status-info font-medium">{metrics.weeklyAverageCoverage}%</strong></span>
-          <span>Req: <strong className="font-medium text-gray-300">{metrics.totalWeekRequired}h</strong></span>
-          <span>Sched: <strong className="font-medium text-gray-300">{metrics.totalWeekScheduled}h</strong></span>
+          <span>
+            Target:{" "}
+            <strong className="text-status-info font-medium">
+              {metrics.weeklyAverageCoverage}%
+            </strong>
+          </span>
+          <span>
+            Req:{" "}
+            <strong className="font-medium text-gray-300">
+              {metrics.totalWeekRequired}h
+            </strong>
+          </span>
+          <span>
+            Sched:{" "}
+            <strong className="font-medium text-gray-300">
+              {metrics.totalWeekScheduled}h
+            </strong>
+          </span>
         </div>
       </div>
-      
+
       <div className="flex items-center gap-5">
         {moveState && (
           <span className="text-status-warning text-xs font-medium animate-pulse border border-status-warning/30 bg-status-warning/10 px-3 py-1.5 rounded-full shadow-sm tabular-nums">
-            From {moveState.sourceDate}: {grid.find(a => a.id === moveState.agentId)?.name} (Press ESC to cancel)
+            From {moveState.sourceDate}:{" "}
+            {grid.find((a) => a.id === moveState.agentId)?.name} (Press ESC to
+            cancel)
           </span>
         )}
 
         {/* Segment Filter */}
         <div className="flex items-center gap-2 bg-background border border-surfaceBorder rounded-md px-3 py-1.5 shadow-inner">
-          <input 
-            type="text" 
-            placeholder="Search Agents..." 
+          <input
+            type="text"
+            placeholder="Search Agents..."
             value={nameSearch}
             onChange={(e) => setNameSearch(e.target.value)}
             className="bg-transparent text-[11px] font-medium text-white placeholder-gray-600 focus:outline-none w-28"
@@ -68,8 +91,10 @@ export const WeeklyToolbar: React.FC<WeeklyToolbarProps> = ({
         </div>
 
         <div className="flex items-center gap-2 bg-background border border-surfaceBorder rounded-md px-3 py-1.5 shadow-inner">
-          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Sort:</span>
-          <select 
+          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+            Sort:
+          </span>
+          <select
             className="bg-transparent text-[11px] font-medium text-white focus:outline-none cursor-pointer"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
@@ -81,25 +106,44 @@ export const WeeklyToolbar: React.FC<WeeklyToolbarProps> = ({
         </div>
 
         <div className="flex items-center gap-2 bg-background border border-surfaceBorder rounded-md px-3 py-1.5 shadow-inner hidden xl:flex">
-          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">Filter:</span>
-          <select 
+          <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+            Filter:
+          </span>
+          <select
             className="bg-transparent text-[11px] font-medium text-white focus:outline-none cursor-pointer"
             value={segmentFilter}
             onChange={(e) => setSegmentFilter(e.target.value)}
           >
             <option value="">All Segments</option>
-            {availableSegments.map(seg => (
-              <option key={seg} value={seg}>{seg}</option>
+            {availableSegments.map((seg) => (
+              <option key={seg} value={seg}>
+                {seg}
+              </option>
             ))}
           </select>
         </div>
 
         <div className="flex items-center bg-background border border-surfaceBorder rounded-md overflow-hidden shadow-inner">
-          <button onClick={() => setDensity("compact")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "compact" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Small</button>
+          <button
+            onClick={() => setDensity("compact")}
+            className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "compact" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}
+          >
+            Small
+          </button>
           <div className="w-px h-3 bg-surfaceBorder"></div>
-          <button onClick={() => setDensity("normal")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "normal" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Med</button>
+          <button
+            onClick={() => setDensity("normal")}
+            className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "normal" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}
+          >
+            Med
+          </button>
           <div className="w-px h-3 bg-surfaceBorder"></div>
-          <button onClick={() => setDensity("large")} className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "large" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}>Large</button>
+          <button
+            onClick={() => setDensity("large")}
+            className={`px-3 py-1.5 text-[11px] font-medium transition-colors ${density === "large" ? "bg-status-info text-background" : "text-gray-500 hover:text-gray-300 hover:bg-surface/50"}`}
+          >
+            Large
+          </button>
         </div>
 
         <button
@@ -110,7 +154,10 @@ export const WeeklyToolbar: React.FC<WeeklyToolbarProps> = ({
           {isMoving ? "Optimizing..." : "Auto Days Off"}
         </button>
 
-        <Link href="/" className="px-4 py-1.5 bg-background border border-surfaceBorder rounded-md hover:bg-surface/50 text-xs font-medium transition-colors">
+        <Link
+          href="/"
+          className="px-4 py-1.5 bg-background border border-surfaceBorder rounded-md hover:bg-surface/50 text-xs font-medium transition-colors"
+        >
           ← Back to Intraday
         </Link>
       </div>

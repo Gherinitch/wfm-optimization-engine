@@ -3,6 +3,7 @@
 import { useScheduleStore } from "@/store/useScheduleStore";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatTime } from "@/utils/time";
+import { Z_INDEX } from "@/constants/ui";
 
 export const ValidationModal = () => {
   const pendingOverride = useScheduleStore((state) => state.pendingOverride);
@@ -21,7 +22,10 @@ export const ValidationModal = () => {
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[999] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+      <div
+        className={`fixed inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4`}
+        style={{ zIndex: Z_INDEX.MODAL_BACKDROP }}
+      >
         <motion.div
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}

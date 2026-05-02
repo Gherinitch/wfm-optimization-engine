@@ -3,13 +3,7 @@
 
 import { useScheduleStore } from "@/store/useScheduleStore";
 import Link from "next/link";
-
-const formatTime = (mins: number) => {
-  const normalized = mins % 1440;
-  const h = Math.floor(normalized / 60);
-  const m = normalized % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-};
+import { formatTime } from "@/utils/time";
 
 export default function EditsPage() {
   const edits = useScheduleStore((state) => state.edits);

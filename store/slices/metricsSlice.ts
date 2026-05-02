@@ -1,6 +1,7 @@
 // store/slices/metricsSlice.ts
 import { StateCreator } from "zustand";
 import { ScheduleState, MetricsSlice } from "../storeTypes";
+import { MINS_PER_DAY, MINS_PER_INTERVAL } from "@/constants/wfm";
 
 export const createMetricsSlice: StateCreator<
   ScheduleState,
@@ -8,13 +9,13 @@ export const createMetricsSlice: StateCreator<
   [],
   MetricsSlice
 > = (set, get) => ({
-  dailyCoverage: new Array(1440).fill(0),
+  dailyCoverage: new Array(MINS_PER_DAY).fill(0),
   dailyScheduledMetrics: 0,
   dailyRequiredMetrics: 0,
 
   recalculateMetrics: () =>
     set((state) => {
-      const coverage = new Array(1440).fill(0);
+      const coverage = new Array(MINS_PER_DAY).fill(0);
 
       Object.values(state.agents).forEach((agent) => {
         const todaysSegs = agent.segments
@@ -23,11 +24,11 @@ export const createMetricsSlice: StateCreator<
             (seg) => seg && seg.date === state.selectedDate && !seg.isGeneral,
           );
 
-        const agentMins = new Array(1440).fill(0);
+        const agentMins = new Array(MINS_PER_DAY).fill(0);
 
         todaysSegs.forEach((seg) => {
           const start = Math.max(0, seg.startMin);
-          const end = Math.min(1440, seg.endMin);
+          const end = Math.min(MINS_PER_DAY, seg.endMin);
 
           if (seg.category === "Work") {
             for (let m = start; m < end; m++)
@@ -37,7 +38,7 @@ export const createMetricsSlice: StateCreator<
           }
         });
 
-        for (let m = 0; m < 1440; m++) {
+        for (let m = 0; m < MINS_PER_DAY; m++) {
           if (agentMins[m] === 1) coverage[m]++;
         }
       });
@@ -53,7 +54,7 @@ export const createMetricsSlice: StateCreator<
 
       return {
         dailyCoverage: coverage,
-        dailyScheduledMetrics: totalProductiveMinutes / 15,
+        dailyScheduledMetrics: totalProductiveMinutes / MINS_PER_INTERVAL,
         dailyRequiredMetrics: dailyRequired,
       };
     }),
@@ -68,12 +69,12 @@ export const createMetricsSlice: StateCreator<
 
   getAggregatedMetrics: (startMin, durationMins) => {
     const state = get();
-    const intervals = Math.max(1, durationMins / 15);
+    const intervals = Math.max(1, durationMins / MINS_PER_INTERVAL);
     let totalScheduled = 0,
       totalRequired = 0;
 
     for (let i = 0; i < intervals; i++) {
-      const t = startMin + i * 15;
+      const t = startMin + i * MINS_PER_INTERVAL;
       totalScheduled += state.dailyCoverage[t] || 0;
       totalRequired +=
         state.requirements[`${state.selectedDate}_${t}`]?.req || 0;

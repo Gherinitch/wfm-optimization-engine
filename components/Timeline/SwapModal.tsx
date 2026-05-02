@@ -3,13 +3,8 @@
 
 import { useState, useEffect } from "react";
 import { useScheduleStore } from "@/store/useScheduleStore";
-
-const formatTime = (mins: number) => {
-  const normalized = mins % 1440;
-  const h = Math.floor(normalized / 60);
-  const m = normalized % 60;
-  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
-};
+import { formatTime } from "@/utils/time";
+import { Z_INDEX } from "@/constants/ui";
 
 // Clean UI component for displaying the time range
 const ShiftBadge = ({
@@ -108,7 +103,10 @@ export const SwapModal = () => {
   const targetCBounds = getShiftBounds(targetC);
 
   return (
-    <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div
+      className={`fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4`}
+      style={{ zIndex: Z_INDEX.MODAL_OVERLAY }}
+    >
       <div className="bg-surface border border-surfaceBorder rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         <div className="p-4 border-b border-surfaceBorder flex justify-between items-center bg-background/50">
           <h2 className="font-heading font-bold text-lg text-white">

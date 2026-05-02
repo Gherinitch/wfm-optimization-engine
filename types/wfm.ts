@@ -45,7 +45,7 @@ export type RuleBlueprint =
   | "MIN_WORK_BEFORE"
   | "MIN_GAP";
 
-export interface CustomRule {
+export interface Rule {
   id: string;
   name: string;
   isActive: boolean;
@@ -54,6 +54,9 @@ export interface CustomRule {
   referenceCategory?: SegmentCategory;
   valueMinutes: number;
 }
+
+// CustomRule is an alias for Rule, used in constraint engine
+export type CustomRule = Rule;
 
 export type EditType = "TIME_CHANGE" | "REASSIGNMENT" | "DATE_CHANGE";
 
@@ -85,4 +88,83 @@ export interface InterdayMove {
   agentId: string;
   oldDate: string;
   newDate: string;
+}
+
+// Database row interfaces
+export interface DbAgentRow {
+  id: string;
+  name: string;
+}
+
+export interface DbSegmentRow {
+  id: string;
+  agent_id: string;
+  name: string;
+  category: string;
+  is_general: boolean;
+  is_paid: boolean;
+  date: string;
+  start_min: number;
+  end_min: number;
+  rank: number;
+}
+
+export interface DbRequirementRow {
+  id: string;
+  date: string;
+  time_min: number;
+  req: number;
+}
+
+export interface DbEditRow {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  old_data: string | null;
+  new_data: string | null;
+  timestamp: number;
+}
+
+export interface DbShiftRow {
+  id: string;
+  agent_id: string;
+  date: string;
+  start_min: number;
+  end_min: number;
+}
+
+export interface DbMetricRow {
+  date: string;
+  scheduled: number;
+  required: number;
+  coverage: number;
+  status: string;
+  is_actionable: number;
+}
+
+export interface DbAdjacentSegmentRow {
+  id: string;
+  agent_id: string;
+  date: string;
+  start_min: number;
+  end_min: number;
+  rank: number;
+}
+
+// Database query parameter type
+export type DbQueryParams = (
+  | string
+  | number
+  | boolean
+  | null
+  | (string | number)[]
+)[];
+
+// Database query result interfaces
+export interface DbShiftSummaryRow {
+  agent_id: string;
+  date: string;
+  start_min: number;
+  end_min: number;
 }
